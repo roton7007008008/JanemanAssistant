@@ -37,8 +37,8 @@ import java.util.Locale
 
 class AssistantService : Service(), TextToSpeech.OnInitListener {
 
-    private val GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
-
+    private val GEMINI_API_KEY = "AQ.Ab8RN6LwpcqBwrQg-FX2RQbRVR_1lZFo8rWYwjzTfFxbgknvlQ"
+    
     private var speechRecognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main)
@@ -63,7 +63,8 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 tts?.setLanguage(Locale.US)
             }
-            speak("ইয়েস স্যার! জারভিস সিস্টেম পুরোপুরি অনলাইন। বলুন আমি কীভাবে সাহায্য করতে পারি?")
+            // ১. অন হওয়ার সাথে সাথে আপনার শেখানো ডায়ালগ বলবে
+            speak("আমি Janeman Assistant বলছি। আমি আপনাকে সাহায্য করার জন্য প্রস্তুত আছি!")
         }
     }
 
@@ -94,7 +95,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
             setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
-                    broadcastTelemetry("Jarvis: শুনছি স্যার... বলুন।")
+                    broadcastTelemetry("Janeman: শুনছি স্যার... বলুন।")
                 }
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
@@ -137,28 +138,32 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         val lower = command.lowercase(Locale.ROOT)
         broadcastTelemetry("You Said: \"$command\"")
 
-        // ১. ফ্ল্যাশলাইট / টর্চ অন-অফ
+        // ২. কে বানিয়েছে বা মালিক কে প্রশ্ন করলে আপনার নাম বলবে
+        if (lower.contains("বানিয়েছে") || lower.contains("তৈরি করেছে") || lower.contains("মালিক") || lower.contains("creator") || lower.contains("made you")) {
+            val reply = "আমাকে বানিয়েছেন MD ROTON PRAMANIK! আমি ওনার তৈরি বিশেষ এআই অ্যাসিস্ট্যান্ট।"
+            speak(reply)
+            broadcastTelemetry("Janeman: $reply")
+            return
+        }
+
+        // টর্চ লাইট
         if (lower.contains("torch") || lower.contains("টর্চ") || lower.contains("লাইট") || lower.contains("flash")) {
             if (lower.contains("বন্ধ") || lower.contains("off")) {
                 toggleTorch(false)
                 speak("স্যার, টর্চ বন্ধ করে দিয়েছি")
-                broadcastTelemetry("Jarvis: টর্চ বন্ধ করা হয়েছে।")
             } else {
                 toggleTorch(true)
                 speak("স্যার, টর্চ জ্বালিয়ে দিয়েছি")
-                broadcastTelemetry("Jarvis: টর্চ জ্বালানো হয়েছে।")
             }
             return
         }
 
-        // ২. ইউটিউব
+        // ইউটিউব প্লে
         if (lower.contains("youtube") || lower.contains("ইউটিউব") || lower.contains("গান") || lower.contains("song")) {
             val query = command.replace("youtube", "", ignoreCase = true)
                 .replace("ইউটিউব", "").replace("ওপেন করো", "").replace("গান ছাড়ো", "").replace("গান চালাও", "").trim()
             val finalQuery = if (query.isEmpty()) "Ashes band songs" else query
-            speak("স্যার, ইউটিউবে $finalQuery ছাড়া হচ্ছে")
-            broadcastTelemetry("Jarvis: Playing YouTube -> $finalQuery")
-
+            speak("স্যার, ইউটিউবে $finalQuery চালানো হচ্ছে")
             val intent = Intent(Intent.ACTION_SEARCH).apply {
                 setPackage("com.google.android.youtube")
                 putExtra("query", finalQuery)
@@ -173,7 +178,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // ৩. টিকটক ওপেন ও স্ক্রল
+        // টিকটক
         if (lower.contains("tiktok") || lower.contains("টিকটক")) {
             if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ")) {
                 speak("স্যার, স্ক্রল করছি")
@@ -185,14 +190,14 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // ৪. স্ক্রল
+        // স্ক্রল
         if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ")) {
-            speak("স্যার, স্ক্রল করছি")
+            speak("স্যার, স্ক্রল করে দিয়েছি")
             MyAccessibilityService.instance?.scrollDown()
             return
         }
 
-        // ৫. মেসেঞ্জার
+        // মেসেঞ্জার
         if (lower.contains("messenger") || lower.contains("মেসেঞ্জার") || lower.contains("মেসেজ")) {
             val msg = command.replace("মেসেঞ্জার", "").replace("মেসেজ", "").replace("পাঠাও", "").replace("লেখো", "").trim()
             speak("স্যার, মেসেঞ্জারে টাইপ করছি")
@@ -200,7 +205,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // ৬. কল দেওয়া
+        // কল
         if (lower.contains("call") || lower.contains("কল")) {
             val sim = if (lower.contains("২") || lower.contains("2")) 2 else 1
             val rawName = command.replace("কল দাও", "").replace("কল করো", "")
@@ -211,7 +216,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // ৭. অ্যাপ ওপেন
+        // যেকোনো অ্যাপ ওপেন করা
         if (lower.contains("open") || lower.contains("ওপেন") || lower.contains("খোলো") || lower.contains("যাও")) {
             val appName = command.replace("open", "", ignoreCase = true)
                 .replace("ওপেন করো", "").replace("খোলো", "").replace("যাও", "").trim()
@@ -221,7 +226,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             }
         }
 
-        // ৮. সাধারণ সব কথার বুদ্ধিমান উত্তর (Gemini AI Chat)
+        // অসীম সাধারণ প্রশ্ন ও উত্তর (Gemini AI)
         talkWithGeminiAi(command)
     }
 
@@ -273,24 +278,22 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         serviceScope.launch(Dispatchers.IO) {
             try {
                 val model = GenerativeModel(modelName = "gemini-1.5-flash", apiKey = GEMINI_API_KEY)
-                val prompt = "You are JARVIS, an extremely smart, polite, and loyal AI assistant created by Tony Stark. The user is your boss. Always address the user as 'Sir' (স্যার) in Bengali. Answer this question naturally, intelligently and directly in 1-2 Bengali sentences: $command"
+                val prompt = "You are Janeman Assistant, created by MD ROTON PRAMANIK. Always address the user politely as 'Sir' (স্যার) in Bengali. Answer this question naturally, intelligently and directly in 1-2 Bengali sentences: $command"
                 val res = model.generateContent(prompt).text ?: ""
                 val cleanAnswer = res.trim()
                 
                 launch(Dispatchers.Main) {
                     speak(cleanAnswer)
-                    broadcastTelemetry("Jarvis: $cleanAnswer")
+                    broadcastTelemetry("Janeman: $cleanAnswer")
                 }
             } catch (e: Exception) {
                 launch(Dispatchers.Main) {
                     speak("স্যার, আমি আপনার নির্দেশ বুঝতে পেরেছি। দয়া করে আরেকবার বলুন।")
-                    broadcastTelemetry("Jarvis: নির্দেশটি আবার বলুন, স্যার।")
                 }
             }
         }
     }
 
-    // স্ক্রিনের উপর ভাসমান জারভিস বল (Floating Orb)
     private fun toggleFloatingOrb() {
         if (floatingOrbView != null) {
             windowManager?.removeView(floatingOrbView)
@@ -311,8 +314,8 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         }
 
         val orb = TextView(this).apply {
-            text = "JARVIS"
-            textSize = 10f
+            text = "JANEMAN"
+            textSize = 9f
             setTextColor(Color.BLACK)
             gravity = Gravity.CENTER
             setBackgroundColor(Color.parseColor("#00F2FE"))
@@ -389,15 +392,15 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel("assistant_channel", "JARVIS HUD", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel("assistant_channel", "Janeman Assistant", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
     }
 
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, "assistant_channel")
-            .setContentTitle("JARVIS HUD ONLINE")
-            .setContentText("Awaiting voice command, Sir...")
+            .setContentTitle("JANEMAN ASSISTANT ONLINE")
+            .setContentText("Created by MD ROTON PRAMANIK")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
     }
