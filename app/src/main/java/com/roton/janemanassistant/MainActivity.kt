@@ -1,9 +1,13 @@
 package com.roton.janemanassistant
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -18,8 +22,20 @@ class MainActivity : AppCompatActivity() {
 
     private var isServiceRunning = false
     private lateinit var tvStatus: TextView
+    private lateinit var tvReactorText: TextView
+    private lateinit var tvLiveSpeech: TextView
+    private lateinit var tvAiResponse: TextView
     private lateinit var btnToggleAssistant: Button
     private lateinit var btnEnableAccessibility: Button
+
+    private val telemetryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val userSaid = intent?.getStringExtra("userSaid") ?: ""
+            val aiAction = intent?.getStringExtra("aiAction") ?: ""
+            tvLiveSpeech.text = userSaid
+            tvAiResponse.text = aiAction
+        }
+    }
 
     private val REQUIRED_PERMISSIONS = mutableListOf(
         Manifest.permission.RECORD_AUDIO,
@@ -37,16 +53,18 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         tvStatus = findViewById(R.id.tvStatus)
+        tvReactorText = findViewById(R.id.tvReactorText)
+        tvLiveSpeech = findViewById(R.id.tvLiveSpeech)
+        tvAiResponse = findViewById(R.id.tvAiResponse)
         btnToggleAssistant = findViewById(R.id.btnToggleAssistant)
         btnEnableAccessibility = findViewById(R.id.btnEnableAccessibility)
 
-        // প্রয়োজনীয় সব পারমিশন চাওয়া
         requestAppPermissions()
+        checkOverlayPermission()
 
-        // অ্যাসিস্ট্যান্ট অন/অফ সুইচ
         btnToggleAssistant.setOnClickListener {
             if (!hasPermissions()) {
-                Toast.makeText(this, "Please grant all permissions first!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Permissions required!", Toast.LENGTH_SHORT).show()
                 requestAppPermissions()
                 return@setOnClickListener
             }
@@ -58,32 +76,62 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // মেসেঞ্জারে টাইপ ও সোয়াইপ পারমিশন অন করার বাটন
         btnEnableAccessibility.setOnClickListener {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             startActivity(intent)
-            Toast.makeText(this, "Turn ON 'Janeman Assistant' from downloaded apps", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun checkOverlayPermission() {
+        if (!Settings.canDrawOverlays(this)) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
+            Toast.makeText(this, "Turn ON 'Display over other apps' to allow opening YouTube/Call", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val filter = IntentFilter("JARVIS_TELEMETRY")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(telemetryReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(telemetryReceiver, filter)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try {
+            unregisterReceiver(telemetryReceiver)
+        } catch (e: Exception) {}
     }
 
     private fun startAssistant() {
         val serviceIntent = Intent(this, AssistantService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
         isServiceRunning = true
-        tvStatus.text = "Status: Assistant is Running (Listening...)"
-        tvStatus.setTextColor(Color.parseColor("#00E676"))
-        btnToggleAssistant.text = "STOP ASSISTANT"
-        btnToggleAssistant.setBackgroundColor(Color.parseColor("#FF5252"))
+        tvStatus.text = "● JARVIS ONLINE & LISTENING"
+        tvStatus.setTextColor(Color.parseColor("#00E5FF"))
+        tvReactorText.text = "ARC CORE\nACTIVE"
+        tvReactorText.setTextColor(Color.parseColor("#76FF03"))
+        btnToggleAssistant.text = "DISENGAGE SYSTEM"
+        btnToggleAssistant.setBackgroundColor(Color.parseColor("#FF1744"))
     }
 
     private fun stopAssistant() {
         val serviceIntent = Intent(this, AssistantService::class.java)
         stopService(serviceIntent)
         isServiceRunning = false
-        tvStatus.text = "Status: Assistant is OFF"
-        tvStatus.setTextColor(Color.parseColor("#AAAAAA"))
-        btnToggleAssistant.text = "START ASSISTANT"
-        btnToggleAssistant.setBackgroundColor(Color.parseColor("#00E676"))
+        tvStatus.text = "● SYSTEM OFFLINE"
+        tvStatus.setTextColor(Color.parseColor("#FF1744"))
+        tvReactorText.text = "ARC CORE\nSTANDBY"
+        tvReactorText.setTextColor(Color.parseColor("#00E5FF"))
+        btnToggleAssistant.text = "INITIALIZE SYSTEM"
+        btnToggleAssistant.setBackgroundColor(Color.parseColor("#00E5FF"))
     }
 
     private fun hasPermissions(): Boolean {
