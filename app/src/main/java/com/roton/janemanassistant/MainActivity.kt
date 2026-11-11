@@ -22,18 +22,15 @@ class MainActivity : AppCompatActivity() {
 
     private var isServiceRunning = false
     private lateinit var tvStatus: TextView
-    private lateinit var tvReactorText: TextView
-    private lateinit var tvLiveSpeech: TextView
-    private lateinit var tvAiResponse: TextView
     private lateinit var btnToggleAssistant: Button
     private lateinit var btnEnableAccessibility: Button
 
+    // লাইভ কথা স্ক্রিনে দেখানোর রিসিভার
     private val telemetryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val userSaid = intent?.getStringExtra("userSaid") ?: ""
             val aiAction = intent?.getStringExtra("aiAction") ?: ""
-            tvLiveSpeech.text = userSaid
-            tvAiResponse.text = aiAction
+            tvStatus.text = "$userSaid\n$aiAction"
         }
     }
 
@@ -53,9 +50,6 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         tvStatus = findViewById(R.id.tvStatus)
-        tvReactorText = findViewById(R.id.tvReactorText)
-        tvLiveSpeech = findViewById(R.id.tvLiveSpeech)
-        tvAiResponse = findViewById(R.id.tvAiResponse)
         btnToggleAssistant = findViewById(R.id.btnToggleAssistant)
         btnEnableAccessibility = findViewById(R.id.btnEnableAccessibility)
 
@@ -83,13 +77,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkOverlayPermission() {
-        if (!Settings.canDrawOverlays(this)) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
             )
             startActivity(intent)
-            Toast.makeText(this, "Turn ON 'Display over other apps' to allow opening YouTube/Call", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -114,11 +107,9 @@ class MainActivity : AppCompatActivity() {
         val serviceIntent = Intent(this, AssistantService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
         isServiceRunning = true
-        tvStatus.text = "● JARVIS ONLINE & LISTENING"
-        tvStatus.setTextColor(Color.parseColor("#00E5FF"))
-        tvReactorText.text = "ARC CORE\nACTIVE"
-        tvReactorText.setTextColor(Color.parseColor("#76FF03"))
-        btnToggleAssistant.text = "DISENGAGE SYSTEM"
+        tvStatus.text = "● JARVIS ONLINE\nListening to your voice..."
+        tvStatus.setTextColor(Color.parseColor("#00E676"))
+        btnToggleAssistant.text = "STOP ASSISTANT"
         btnToggleAssistant.setBackgroundColor(Color.parseColor("#FF1744"))
     }
 
@@ -127,11 +118,9 @@ class MainActivity : AppCompatActivity() {
         stopService(serviceIntent)
         isServiceRunning = false
         tvStatus.text = "● SYSTEM OFFLINE"
-        tvStatus.setTextColor(Color.parseColor("#FF1744"))
-        tvReactorText.text = "ARC CORE\nSTANDBY"
-        tvReactorText.setTextColor(Color.parseColor("#00E5FF"))
-        btnToggleAssistant.text = "INITIALIZE SYSTEM"
-        btnToggleAssistant.setBackgroundColor(Color.parseColor("#00E5FF"))
+        tvStatus.setTextColor(Color.parseColor("#AAAAAA"))
+        btnToggleAssistant.text = "START ASSISTANT"
+        btnToggleAssistant.setBackgroundColor(Color.parseColor("#00E676"))
     }
 
     private fun hasPermissions(): Boolean {
