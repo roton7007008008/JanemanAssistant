@@ -25,12 +25,10 @@ import com.google.ai.client.generativeai.GenerativeModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 import java.util.Locale
 
 class AssistantService : Service(), TextToSpeech.OnInitListener {
 
-    // >>>>> আপনার API KEY টি নিচের কোটেশনের ভেতরে বসাবেন <<<<<
     private val GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
 
     private var speechRecognizer: SpeechRecognizer? = null
@@ -49,12 +47,11 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            // বাংলা বা ইংরেজি দুটোই সুন্দরভাবে বলার চেষ্টা করবে
             val result = tts?.setLanguage(Locale("bn", "BD"))
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 tts?.setLanguage(Locale.US)
             }
-            speak("আমি রেডি আছি বস, বলুন কী করতে হবে?")
+            speak("আমি রেডি আছি বস!")
         }
     }
 
@@ -69,7 +66,6 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         return START_STICKY
     }
 
-    // অ্যাপের ভেতরের স্ক্রিনে লেখা পাঠানোর ফাংশন
     private fun broadcastTelemetry(userSaid: String, aiAction: String) {
         val intent = Intent("JARVIS_TELEMETRY").apply {
             putExtra("userSaid", userSaid)
@@ -100,7 +96,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     if (!matches.isNullOrEmpty()) {
                         val command = matches[0]
-                        processEverythingWithAI(command)
+                        handleSmartCommand(command)
                     }
                     if (isListening) {
                         mainHandler.postDelayed({ startListening() }, 1500)
@@ -118,92 +114,93 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "bn-BD")
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "bn-BD")
         }
-        try {
-            speechRecognizer?.startListening(intent)
-        } catch (e: Exception) {}
+        try { speechRecognizer?.startListening(intent) } catch (e: Exception) {}
     }
 
-    // মুখ দিয়ে যা বলবেন, Gemini AI বুঝে কাজ করবে এবং মুখে উত্তর দেবে
-    private fun processEverythingWithAI(command: String) {
-        broadcastTelemetry("You: \"$command\"", "AI: উত্তর ভাবছি...")
+    // অফলাইন সুপার ফাস্ট কমান্ড প্রসেসর (ইন্টারনেট ছাড়াও কাজ করবে!)
+    private fun handleSmartCommand(command: String) {
+        val lower = command.lowercase(Locale.ROOT)
+        broadcastTelemetry("You: \"$command\"", "AI: নির্দেশ পালন করছি...")
 
-        serviceScope.launch(Dispatchers.IO) {
-            try {
-                val model = GenerativeModel(modelName = "gemini-1.5-flash", apiKey = GEMINI_API_KEY)
+        // ১. ইউটিউব গান
+        if (lower.contains("youtube") || lower.contains("ইউটিউব") || lower.contains("গান") || lower.contains("song")) {
+            val query = command.replace("youtube", "", ignoreCase = true)
+                .replace("ইউটিউব", "").replace("ওপেন করো", "").replace("গান ছাড়ো", "").replace("গান চালাও", "").trim()
+            val finalQuery = if (query.isEmpty()) "Ashes band songs" else query
+            speak("ইউটিউবে $finalQuery ছাড়া হচ্ছে")
+            broadcastTelemetry("You: $command", "AI: YouTube -> $finalQuery")
 
-                val prompt = """
-                    You are a smart phone assistant named Jarvis. The user said: "$command"
-                    If the user is asking a question or just talking, reply warmly in Bengali in maximum 1-2 short sentences.
-                    
-                    Return a JSON strictly in this format (no extra text):
-                    {
-                      "action": "reply" or "youtube" or "volume" or "call" or "scroll" or "messenger" or "open",
-                      "speech": "What you will say out loud in Bengali",
-                      "target": "song name, contact name, app name, up/down, or empty"
-                    }
-                """.trimIndent()
-
-                val res = model.generateContent(prompt).text ?: ""
-                val cleanJson = res.substringAfter("{").substringBeforeLast("}")
-                val json = JSONObject("{$cleanJson}")
-
-                val action = json.optString("action", "reply")
-                val speech = json.optString("speech", "কাজটি করছি বস")
-                val target = json.optString("target", "")
-
-                launch(Dispatchers.Main) {
-                    // ১. রোবট মুখে উত্তর দেবে
-                    speak(speech)
-                    // ২. অ্যাপের স্ক্রিনে লেখা দেখাবে
-                    broadcastTelemetry("You: $command", "Jarvis: $speech")
-
-                    // ৩. কাজের নির্দেশ হলে সেই কাজ করবে
-                    executeSystemAction(action, target)
-                }
-
-            } catch (e: Exception) {
-                launch(Dispatchers.Main) {
-                    speak("নেটে একটু সমস্যা হচ্ছে বস, আবার বলুন")
-                    broadcastTelemetry("You: $command", "AI: Network error, retrying...")
-                }
+            val intent = Intent(Intent.ACTION_SEARCH).apply {
+                setPackage("com.google.android.youtube")
+                putExtra("query", finalQuery)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
-        }
-    }
-
-    private fun executeSystemAction(action: String, target: String) {
-        when (action) {
-            "youtube" -> {
-                val intent = Intent(Intent.ACTION_SEARCH).apply {
-                    setPackage("com.google.android.youtube")
-                    putExtra("query", if (target.isEmpty()) "Ashes band" else target)
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=$finalQuery")).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
-                try { startActivity(intent) } catch (e: Exception) {}
+                startActivity(web)
             }
-            "volume" -> {
-                val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                val direction = if (target.contains("down") || target.contains("low")) AudioManager.ADJUST_LOWER else AudioManager.ADJUST_RAISE
-                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+            return
+        }
+
+        // ২. ভলিউম বাড়ানো / কমানো
+        if (lower.contains("volume") || lower.contains("ভলিউম") || lower.contains("আওয়াজ")) {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            if (lower.contains("কমাও") || lower.contains("down") || lower.contains("low")) {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+                speak("ভলিউম কমিয়ে দিয়েছি")
+            } else {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+                speak("ভলিউম বাড়িয়ে দিয়েছি")
             }
-            "call" -> {
-                makeCall(target, 1)
-            }
-            "scroll" -> {
-                MyAccessibilityService.instance?.scrollDown()
-            }
-            "messenger" -> {
-                MyAccessibilityService.instance?.typeAndSendMessage(target)
-            }
-            "open" -> {
-                openAnyAppByName(target)
+            return
+        }
+
+        // ৩. টিকটক সোয়াইপ
+        if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ") || lower.contains("tiktok")) {
+            speak("স্ক্রল করছি")
+            MyAccessibilityService.instance?.scrollDown()
+            return
+        }
+
+        // ৪. মেসেঞ্জার
+        if (lower.contains("messenger") || lower.contains("মেসেঞ্জার") || lower.contains("মেসেজ")) {
+            val msg = command.replace("মেসেঞ্জার", "").replace("মেসেজ", "").replace("পাঠাও", "").trim()
+            speak("মেসেঞ্জারে টাইপ করছি")
+            MyAccessibilityService.instance?.typeAndSendMessage(msg)
+            return
+        }
+
+        // ৫. কল দেওয়া (সিম ১ বা ২)
+        if (lower.contains("call") || lower.contains("কল")) {
+            val sim = if (lower.contains("২") || lower.contains("2")) 2 else 1
+            val name = command.replace("কল দাও", "").replace("কল করো", "")
+                .replace("call", "").replace("sim 2", "").replace("sim 1", "").trim()
+            speak("$name কে সিম $sim দিয়ে কল দিচ্ছি")
+            makeCall(name, sim)
+            return
+        }
+
+        // ৬. যেকোনো অ্যাপ ওপেন করা
+        if (lower.contains("open") || lower.contains("ওপেন") || lower.contains("যাও") || lower.contains("খোলো")) {
+            val appName = command.replace("open", "", ignoreCase = true)
+                .replace("ওপেন করো", "").replace("খোলো", "").replace("যাও", "").trim()
+            val opened = openAnyAppByName(appName)
+            if (opened) {
+                speak("$appName খুলে দিয়েছি")
+                return
             }
         }
+
+        // সাধারণ প্রশ্নের জন্য Gemini AI ব্যাকআপ
+        callGeminiFallback(command)
     }
 
-    // যেকোনো অ্যাপের নাম বললে খুঁজে বের করে ওপেন করা
-    private fun openAnyAppByName(appName: String) {
+    private fun openAnyAppByName(appName: String): Boolean {
         val pm = packageManager
         val packages = pm.getInstalledApplications(0)
         for (app in packages) {
@@ -213,8 +210,23 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                 launchIntent?.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 try {
                     startActivity(launchIntent)
-                    return
+                    return true
                 } catch (e: Exception) {}
+            }
+        }
+        return false
+    }
+
+    private fun callGeminiFallback(command: String) {
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val model = GenerativeModel(modelName = "gemini-1.5-flash", apiKey = GEMINI_API_KEY)
+                val res = model.generateContent("Give a 1 short sentence answer in Bengali to: $command").text ?: ""
+                speak(res)
+                broadcastTelemetry("You: $command", "Jarvis: $res")
+            } catch (e: Exception) {
+                speak("আমি আপনার নির্দেশটি বুঝতে পেরেছি বস!")
+                broadcastTelemetry("You: $command", "AI: Command noted.")
             }
         }
     }
@@ -255,7 +267,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, "assistant_channel")
             .setContentTitle("JARVIS ONLINE")
-            .setContentText("Awaiting your voice command...")
+            .setContentText("Listening to your voice...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
     }
