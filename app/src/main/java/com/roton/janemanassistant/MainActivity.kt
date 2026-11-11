@@ -11,7 +11,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -23,6 +25,8 @@ class MainActivity : AppCompatActivity() {
     private var isServiceRunning = false
     private lateinit var tvHudStatus: TextView
     private lateinit var tvLiveLog: TextView
+    private lateinit var tvAppsTitle: TextView
+    private lateinit var lvInstalledApps: ListView
     private lateinit var btnToggleAssistant: Button
     private lateinit var btnToggleFloatingBall: Button
     private lateinit var btnEnableAccessibility: Button
@@ -52,12 +56,17 @@ class MainActivity : AppCompatActivity() {
 
         tvHudStatus = findViewById(R.id.tvHudStatus)
         tvLiveLog = findViewById(R.id.tvLiveLog)
+        tvAppsTitle = findViewById(R.id.tvAppsTitle)
+        lvInstalledApps = findViewById(R.id.lvInstalledApps)
         btnToggleAssistant = findViewById(R.id.btnToggleAssistant)
         btnToggleFloatingBall = findViewById(R.id.btnToggleFloatingBall)
         btnEnableAccessibility = findViewById(R.id.btnEnableAccessibility)
 
         requestAppPermissions()
         checkOverlayPermission()
+
+        // ফোন ইনস্টল হওয়া সব অ্যাপ স্ক্যান করা
+        scanInstalledApps()
 
         btnToggleAssistant.setOnClickListener {
             if (!hasPermissions()) {
@@ -73,7 +82,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // ভাসমান বল অন/অফ করার বাটন
         btnToggleFloatingBall.setOnClickListener {
             if (!Settings.canDrawOverlays(this)) {
                 checkOverlayPermission()
@@ -89,6 +97,28 @@ class MainActivity : AppCompatActivity() {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             startActivity(intent)
         }
+    }
+
+    // ফোনের সব অ্যাপ স্ক্যান করে স্ক্রিনে দেখানো
+    private fun scanInstalledApps() {
+        try {
+            val pm = packageManager
+            val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+            val appNames = ArrayList<String>()
+
+            for (app in packages) {
+                if (pm.getLaunchIntentForPackage(app.packageName) != null) {
+                    val label = pm.getApplicationLabel(app).toString()
+                    appNames.add("▶  $label")
+                }
+            }
+
+            appNames.sort()
+            tvAppsTitle.text = "[ SCANNED APPS: ${appNames.size} AVAILABLE ]"
+
+            val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, appNames)
+            lvInstalledApps.adapter = adapter
+        } catch (e: Exception) {}
     }
 
     private fun checkOverlayPermission() {
@@ -122,9 +152,9 @@ class MainActivity : AppCompatActivity() {
         val serviceIntent = Intent(this, AssistantService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
         isServiceRunning = true
-        tvHudStatus.text = "● PROTOCOL: ONLINE & LISTENING"
+        tvHudStatus.text = "● JANEMAN ASSISTANT ONLINE"
         tvHudStatus.setTextColor(Color.parseColor("#00F2FE"))
-        btnToggleAssistant.text = "DISENGAGE PROTOCOL"
+        btnToggleAssistant.text = "STOP ASSISTANT"
         btnToggleAssistant.setBackgroundColor(Color.parseColor("#FF3366"))
     }
 
@@ -132,9 +162,9 @@ class MainActivity : AppCompatActivity() {
         val serviceIntent = Intent(this, AssistantService::class.java)
         stopService(serviceIntent)
         isServiceRunning = false
-        tvHudStatus.text = "● PROTOCOL: OFFLINE"
+        tvHudStatus.text = "● SYSTEM STANDBY"
         tvHudStatus.setTextColor(Color.parseColor("#FF3366"))
-        btnToggleAssistant.text = "INITIALIZE PROTOCOL"
+        btnToggleAssistant.text = "START ASSISTANT"
         btnToggleAssistant.setBackgroundColor(Color.parseColor("#00F2FE"))
     }
 
