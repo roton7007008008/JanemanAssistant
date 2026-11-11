@@ -24,11 +24,12 @@ jobs:
       with:
         gradle-version: '8.6'
 
-    # আপনার আপলোড করা ছবিটিকে অটোমেটিক আসল লোগো বানিয়ে দেওয়া
-    - name: Configure App Logo
+    # যেকোনো নামের আপলোড করা ছবিকে নিখুঁতভাবে লোগো বানিয়ে দেওয়া
+    - name: Auto Setup App Icon
       run: |
         mkdir -p app/src/main/res/drawable
-        cp app_jr_png.png app/src/main/res/drawable/app_icon.png || true
+        find . -maxdepth 2 -name "*.png" -exec cp {} app/src/main/res/drawable/app_icon.png \; || true
+        ls -la app/src/main/res/drawable/
 
     - name: Build Debug APK
       run: gradle assembleDebug --stacktrace
