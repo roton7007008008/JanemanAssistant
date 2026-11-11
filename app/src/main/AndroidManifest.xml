@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.roton.janemanassistant">
 
+    <!-- নোটিফিকেশন অন করার স্পেশাল পারমিশন (Android 13/14 এর জন্য) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- ইন্টারনেট ও AI কানেকশন -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -29,7 +32,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
-        <!-- মেইন স্ক্রিন যেখানে অন/অফ সুইচ থাকবে -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -39,13 +41,11 @@
             </intent-filter>
         </activity>
 
-        <!-- ব্যাকগ্রাউন্ড ভয়েস সার্ভিস -->
         <service
             android:name=".AssistantService"
             android:foregroundServiceType="microphone"
             android:exported="false" />
 
-        <!-- মেসেঞ্জারে টাইপ ও সেন্ড করার অ্যাক্সেসিবিলিটি সার্ভিস -->
         <service
             android:name=".MyAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
