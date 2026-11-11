@@ -21,16 +21,16 @@ import androidx.core.content.ContextCompat
 class MainActivity : AppCompatActivity() {
 
     private var isServiceRunning = false
-    private lateinit var tvStatus: TextView
+    private lateinit var tvHudStatus: TextView
+    private lateinit var tvLiveLog: TextView
     private lateinit var btnToggleAssistant: Button
+    private lateinit var btnToggleFloatingBall: Button
     private lateinit var btnEnableAccessibility: Button
 
-    // লাইভ কথা স্ক্রিনে দেখানোর রিসিভার
     private val telemetryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val userSaid = intent?.getStringExtra("userSaid") ?: ""
-            val aiAction = intent?.getStringExtra("aiAction") ?: ""
-            tvStatus.text = "$userSaid\n$aiAction"
+            val log = intent?.getStringExtra("log") ?: ""
+            tvLiveLog.text = log
         }
     }
 
@@ -38,7 +38,8 @@ class MainActivity : AppCompatActivity() {
         Manifest.permission.RECORD_AUDIO,
         Manifest.permission.CALL_PHONE,
         Manifest.permission.READ_PHONE_STATE,
-        Manifest.permission.READ_CONTACTS
+        Manifest.permission.READ_CONTACTS,
+        Manifest.permission.CAMERA
     ).apply {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
@@ -49,8 +50,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        tvStatus = findViewById(R.id.tvStatus)
+        tvHudStatus = findViewById(R.id.tvHudStatus)
+        tvLiveLog = findViewById(R.id.tvLiveLog)
         btnToggleAssistant = findViewById(R.id.btnToggleAssistant)
+        btnToggleFloatingBall = findViewById(R.id.btnToggleFloatingBall)
         btnEnableAccessibility = findViewById(R.id.btnEnableAccessibility)
 
         requestAppPermissions()
@@ -68,6 +71,18 @@ class MainActivity : AppCompatActivity() {
             } else {
                 startAssistant()
             }
+        }
+
+        // ভাসমান বল অন/অফ করার বাটন
+        btnToggleFloatingBall.setOnClickListener {
+            if (!Settings.canDrawOverlays(this)) {
+                checkOverlayPermission()
+                return@setOnClickListener
+            }
+            val intent = Intent(this, AssistantService::class.java).apply {
+                putExtra("TOGGLE_FLOATING", true)
+            }
+            startService(intent)
         }
 
         btnEnableAccessibility.setOnClickListener {
@@ -107,20 +122,20 @@ class MainActivity : AppCompatActivity() {
         val serviceIntent = Intent(this, AssistantService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
         isServiceRunning = true
-        tvStatus.text = "● JARVIS ONLINE\nListening to your voice..."
-        tvStatus.setTextColor(Color.parseColor("#00E676"))
-        btnToggleAssistant.text = "STOP ASSISTANT"
-        btnToggleAssistant.setBackgroundColor(Color.parseColor("#FF1744"))
+        tvHudStatus.text = "● PROTOCOL: ONLINE & LISTENING"
+        tvHudStatus.setTextColor(Color.parseColor("#00F2FE"))
+        btnToggleAssistant.text = "DISENGAGE PROTOCOL"
+        btnToggleAssistant.setBackgroundColor(Color.parseColor("#FF3366"))
     }
 
     private fun stopAssistant() {
         val serviceIntent = Intent(this, AssistantService::class.java)
         stopService(serviceIntent)
         isServiceRunning = false
-        tvStatus.text = "● SYSTEM OFFLINE"
-        tvStatus.setTextColor(Color.parseColor("#AAAAAA"))
-        btnToggleAssistant.text = "START ASSISTANT"
-        btnToggleAssistant.setBackgroundColor(Color.parseColor("#00E676"))
+        tvHudStatus.text = "● PROTOCOL: OFFLINE"
+        tvHudStatus.setTextColor(Color.parseColor("#FF3366"))
+        btnToggleAssistant.text = "INITIALIZE PROTOCOL"
+        btnToggleAssistant.setBackgroundColor(Color.parseColor("#00F2FE"))
     }
 
     private fun hasPermissions(): Boolean {
