@@ -51,7 +51,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 tts?.setLanguage(Locale.US)
             }
-            speak("আমি রেডি আছি বস!")
+            speak("ইয়েস স্যার! জারভিস অনলাইন। বলুন আমি কী করতে পারি?")
         }
     }
 
@@ -79,7 +79,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
             setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
-                    broadcastTelemetry("User: (শুনছি... বলুন)", "AI: কান খাড়া করে আছি...")
+                    broadcastTelemetry("User: (শুনছি স্যার... বলুন)", "AI: Listening...")
                 }
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
@@ -96,7 +96,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     if (!matches.isNullOrEmpty()) {
                         val command = matches[0]
-                        handleSmartCommand(command)
+                        handleSmartMasterEngine(command)
                     }
                     if (isListening) {
                         mainHandler.postDelayed({ startListening() }, 1500)
@@ -118,27 +118,25 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         try { speechRecognizer?.startListening(intent) } catch (e: Exception) {}
     }
 
-    // অফলাইন সুপার ফাস্ট কমান্ড প্রসেসর (ইন্টারনেট ছাড়াও কাজ করবে!)
-    private fun handleSmartCommand(command: String) {
+    // মাস্টার ইঞ্জিন: সিস্টেম কাজ + Gemini AI চ্যাট
+    private fun handleSmartMasterEngine(command: String) {
         val lower = command.lowercase(Locale.ROOT)
-        broadcastTelemetry("You: \"$command\"", "AI: নির্দেশ পালন করছি...")
+        broadcastTelemetry("You: \"$command\"", "AI: প্রসেস করছি...")
 
-        // ১. ইউটিউব গান
+        // ১. ইউটিউব প্লে
         if (lower.contains("youtube") || lower.contains("ইউটিউব") || lower.contains("গান") || lower.contains("song")) {
             val query = command.replace("youtube", "", ignoreCase = true)
                 .replace("ইউটিউব", "").replace("ওপেন করো", "").replace("গান ছাড়ো", "").replace("গান চালাও", "").trim()
             val finalQuery = if (query.isEmpty()) "Ashes band songs" else query
-            speak("ইউটিউবে $finalQuery ছাড়া হচ্ছে")
-            broadcastTelemetry("You: $command", "AI: YouTube -> $finalQuery")
+            speak("স্যার, ইউটিউবে $finalQuery চালিয়ে দিচ্ছি")
+            broadcastTelemetry("You: $command", "AI: Playing YouTube -> $finalQuery")
 
             val intent = Intent(Intent.ACTION_SEARCH).apply {
                 setPackage("com.google.android.youtube")
                 putExtra("query", finalQuery)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
-            try {
-                startActivity(intent)
-            } catch (e: Exception) {
+            try { startActivity(intent) } catch (e: Exception) {
                 val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=$finalQuery")).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
@@ -147,30 +145,42 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // ২. ভলিউম বাড়ানো / কমানো
-        if (lower.contains("volume") || lower.contains("ভলিউম") || lower.contains("আওয়াজ")) {
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            if (lower.contains("কমাও") || lower.contains("down") || lower.contains("low")) {
-                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
-                speak("ভলিউম কমিয়ে দিয়েছি")
+        // ২. টিকটক ওপেন ও স্ক্রল
+        if (lower.contains("tiktok") || lower.contains("টিকটক")) {
+            if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ")) {
+                if (MyAccessibilityService.instance == null) {
+                    speak("স্যার, অনুগ্রহ করে অ্যাপে গিয়ে অ্যাক্সেসিবিলিটি অন করুন")
+                    return
+                }
+                speak("স্যার, স্ক্রল করছি")
+                MyAccessibilityService.instance?.scrollDown()
+                return
             } else {
-                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
-                speak("ভলিউম বাড়িয়ে দিয়েছি")
+                speak("স্যার, টিকটক খুলে দিচ্ছি")
+                openDirectApp("com.zhiliaoapp.musically", "com.ss.android.ugc.trill")
+                return
             }
-            return
         }
 
-        // ৩. টিকটক সোয়াইপ
-        if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ") || lower.contains("tiktok")) {
-            speak("স্ক্রল করছি")
+        // ৩. সাধারণ স্ক্রল
+        if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ")) {
+            if (MyAccessibilityService.instance == null) {
+                speak("স্যার, আগে অ্যাক্সেসিবিলিটি অন করে নিন")
+                return
+            }
+            speak("স্যার, স্ক্রল করে দিয়েছি")
             MyAccessibilityService.instance?.scrollDown()
             return
         }
 
         // ৪. মেসেঞ্জার
         if (lower.contains("messenger") || lower.contains("মেসেঞ্জার") || lower.contains("মেসেজ")) {
-            val msg = command.replace("মেসেঞ্জার", "").replace("মেসেজ", "").replace("পাঠাও", "").trim()
-            speak("মেসেঞ্জারে টাইপ করছি")
+            val msg = command.replace("মেসেঞ্জার", "").replace("মেসেজ", "").replace("পাঠাও", "").replace("লেখো", "").trim()
+            if (MyAccessibilityService.instance == null) {
+                speak("স্যার, অ্যাক্সেসিবিলিটি পারমিশন দরকার")
+                return
+            }
+            speak("স্যার, মেসেঞ্জারে টাইপ করছি")
             MyAccessibilityService.instance?.typeAndSendMessage(msg)
             return
         }
@@ -178,61 +188,98 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         // ৫. কল দেওয়া (সিম ১ বা ২)
         if (lower.contains("call") || lower.contains("কল")) {
             val sim = if (lower.contains("২") || lower.contains("2")) 2 else 1
-            val name = command.replace("কল দাও", "").replace("কল করো", "")
+            val rawName = command.replace("কল দাও", "").replace("কল করো", "")
                 .replace("call", "").replace("sim 2", "").replace("sim 1", "").trim()
-            speak("$name কে সিম $sim দিয়ে কল দিচ্ছি")
-            makeCall(name, sim)
+            // নামের শেষের 'কে' বা বিভক্তি কেটে ফেলা
+            val cleanName = rawName.removeSuffix("কে").removeSuffix("রে").trim()
+            speak("স্যার, $cleanName কে সিম $sim দিয়ে কল দিচ্ছি")
+            makeCall(cleanName, sim)
             return
         }
 
-        // ৬. যেকোনো অ্যাপ ওপেন করা
+        // ৬. যেকোনো অ্যাপ ওপেন (Facebook, WhatsApp, Camera ইত্যাদি)
         if (lower.contains("open") || lower.contains("ওপেন") || lower.contains("যাও") || lower.contains("খোলো")) {
             val appName = command.replace("open", "", ignoreCase = true)
                 .replace("ওপেন করো", "").replace("খোলো", "").replace("যাও", "").trim()
-            val opened = openAnyAppByName(appName)
+            val opened = openUniversalApp(appName)
             if (opened) {
-                speak("$appName খুলে দিয়েছি")
+                speak("স্যার, $appName খুলে দিয়েছি")
                 return
             }
         }
 
-        // সাধারণ প্রশ্নের জন্য Gemini AI ব্যাকআপ
-        callGeminiFallback(command)
+        // ৭. বাকি সব ক্ষেত্রে: Gemini AI এর সাথে সরাসরি কথা বলা (যেমন চ্যাটজিপিটি বা জেমিনাই)
+        talkWithGeminiAi(command)
     }
 
-    private fun openAnyAppByName(appName: String): Boolean {
+    private fun openDirectApp(vararg packageNames: String): Boolean {
         val pm = packageManager
-        val packages = pm.getInstalledApplications(0)
-        for (app in packages) {
-            val label = pm.getApplicationLabel(app).toString().lowercase()
-            if (label.contains(appName.lowercase())) {
-                val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
-                launchIntent?.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                try {
-                    startActivity(launchIntent)
-                    return true
-                } catch (e: Exception) {}
+        for (pkg in packageNames) {
+            val intent = pm.getLaunchIntentForPackage(pkg)
+            if (intent != null) {
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                startActivity(intent)
+                return true
             }
         }
         return false
     }
 
-    private fun callGeminiFallback(command: String) {
+    private fun openUniversalApp(appName: String): Boolean {
+        val lower = appName.lowercase()
+        // সরাসরি জনপ্রিয় অ্যাপগুলোর জন্য ফাস্ট লঞ্চার
+        if (lower.contains("facebook") || lower.contains("ফেসবুক")) return openDirectApp("com.facebook.katana")
+        if (lower.contains("whatsapp") || lower.contains("হোয়াটসঅ্যাপ")) return openDirectApp("com.whatsapp")
+        if (lower.contains("messenger") || lower.contains("মেসেঞ্জার")) return openDirectApp("com.facebook.orca")
+        if (lower.contains("camera") || lower.contains("ক্যামেরা")) {
+            val intent = Intent("android.media.action.IMAGE_CAPTURE").apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
+            try { startActivity(intent); return true } catch (e: Exception) {}
+        }
+
+        val pm = packageManager
+        val packages = pm.getInstalledApplications(0)
+        for (app in packages) {
+            val label = pm.getApplicationLabel(app).toString().lowercase()
+            if (label.contains(lower)) {
+                val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
+                if (launchIntent != null) {
+                    launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    startActivity(launchIntent)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    // জীবন্ত Gemini AI উত্তর (সবসময় স্যার বলে কথা বলবে)
+    private fun talkWithGeminiAi(command: String) {
         serviceScope.launch(Dispatchers.IO) {
             try {
                 val model = GenerativeModel(modelName = "gemini-1.5-flash", apiKey = GEMINI_API_KEY)
-                val res = model.generateContent("Give a 1 short sentence answer in Bengali to: $command").text ?: ""
-                speak(res)
-                broadcastTelemetry("You: $command", "Jarvis: $res")
+                val prompt = "You are Jarvis, a very smart personal assistant for your boss. Address the user respectfully as 'Sir' (স্যার) in Bengali. Give a friendly, intelligent and direct answer in 1-2 Bengali sentences to: $command"
+                val res = model.generateContent(prompt).text ?: ""
+                val cleanAnswer = res.trim()
+                
+                launch(Dispatchers.Main) {
+                    speak(cleanAnswer)
+                    broadcastTelemetry("You: $command", "Jarvis: $cleanAnswer")
+                }
             } catch (e: Exception) {
-                speak("আমি আপনার নির্দেশটি বুঝতে পেরেছি বস!")
-                broadcastTelemetry("You: $command", "AI: Command noted.")
+                launch(Dispatchers.Main) {
+                    speak("স্যার, আপনার নির্দেশটি বুঝতে পেরেছি। দয়া করে আরেকবার বলুন।")
+                }
             }
         }
     }
 
     private fun makeCall(contactName: String, simSlot: Int) {
-        val number = getPhoneNumber(contactName) ?: return
+        val number = getPhoneNumber(contactName)
+        if (number == null) {
+            speak("স্যার, কন্টাক্টে $contactName নামটি খুঁজে পাওয়া যায়নি")
+            return
+        }
+
         val telecomManager = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
         val accounts = telecomManager.callCapablePhoneAccounts
         val selectedAccount: PhoneAccountHandle? = if (simSlot == 2 && accounts.size > 1) accounts[1] else accounts.firstOrNull()
@@ -266,8 +313,8 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, "assistant_channel")
-            .setContentTitle("JARVIS ONLINE")
-            .setContentText("Listening to your voice...")
+            .setContentTitle("JARVIS AI ONLINE")
+            .setContentText("Awaiting command, Sir...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
     }
