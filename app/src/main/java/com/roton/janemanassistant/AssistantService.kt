@@ -28,8 +28,7 @@ import java.util.Locale
 class AssistantService : Service() {
 
     // >>>>> আপনার সেভ করা GEMINI API KEY টি নিচের কোটেশনের ভেতরে বসাবেন <<<<<
-    private val GEMINI_API_KEY = "AQ.Ab8RN6LwpcqBwrQg-FX2RQbRVR_1lZFo8rWYwjzTfFxbgknvlQ
-"
+    private val GEMINI_API_KEY = "AQ.Ab8RN6LwpcqBwrQg-FX2RQbRVR_1lZFo8rWYwjzTfFxbgknvlQ"
 
     private var speechRecognizer: SpeechRecognizer? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main)
