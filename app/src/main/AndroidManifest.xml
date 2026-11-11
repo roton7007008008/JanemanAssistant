@@ -1,15 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.roton.janemanassistant">
 
-    <!-- যেকোনো অ্যাপ খুঁজে বের করে ওপেন করার পারমিশন -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.MAIN" />
-        </intent>
-    </queries>
+    <!-- ফোনের সব অ্যাপ (TikTok, Facebook ইত্যাদি) দেখার মূল পারমিশন -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
 
-    <!-- নোটিফিকেশন, মাইক ও কল পারমিশন -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.INTERNET" />
