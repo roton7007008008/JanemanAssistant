@@ -38,7 +38,7 @@ import java.util.Locale
 class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private val GEMINI_API_KEY = "AQ.Ab8RN6LwpcqBwrQg-FX2RQbRVR_1lZFo8rWYwjzTfFxbgknvlQ"
-    
+
     private var speechRecognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main)
@@ -63,7 +63,6 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 tts?.setLanguage(Locale.US)
             }
-            // ১. অন হওয়ার সাথে সাথে আপনার শেখানো ডায়ালগ বলবে
             speak("আমি Janeman Assistant বলছি। আমি আপনাকে সাহায্য করার জন্য প্রস্তুত আছি!")
         }
     }
@@ -138,7 +137,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         val lower = command.lowercase(Locale.ROOT)
         broadcastTelemetry("You Said: \"$command\"")
 
-        // ২. কে বানিয়েছে বা মালিক কে প্রশ্ন করলে আপনার নাম বলবে
+        // ১. নির্মাতা পরিচয়
         if (lower.contains("বানিয়েছে") || lower.contains("তৈরি করেছে") || lower.contains("মালিক") || lower.contains("creator") || lower.contains("made you")) {
             val reply = "আমাকে বানিয়েছেন MD ROTON PRAMANIK! আমি ওনার তৈরি বিশেষ এআই অ্যাসিস্ট্যান্ট।"
             speak(reply)
@@ -146,7 +145,19 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // টর্চ লাইট
+        // ২. কল দেওয়া (ইংলিশ নাম, Mim 01 বা সরাসরি নম্বর সমাধান)
+        if (lower.contains("call") || lower.contains("কল") || lower.contains("ফোন")) {
+            val sim = if (lower.contains("২") || lower.contains("2")) 2 else 1
+            val cleanTarget = command.replace("কল দাও", "").replace("কল করো", "")
+                .replace("ফোন দাও", "").replace("call", "", ignoreCase = true)
+                .replace("sim 2", "").replace("sim 1", "").replace("কে", "").replace("রে", "").trim()
+
+            speak("স্যার, $cleanTarget কে সিম $sim দিয়ে কল দেওয়া হচ্ছে")
+            smartPhoneCall(cleanTarget, sim)
+            return
+        }
+
+        // ৩. টর্চ লাইট
         if (lower.contains("torch") || lower.contains("টর্চ") || lower.contains("লাইট") || lower.contains("flash")) {
             if (lower.contains("বন্ধ") || lower.contains("off")) {
                 toggleTorch(false)
@@ -158,7 +169,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // ইউটিউব প্লে
+        // ৪. ইউটিউব
         if (lower.contains("youtube") || lower.contains("ইউটিউব") || lower.contains("গান") || lower.contains("song")) {
             val query = command.replace("youtube", "", ignoreCase = true)
                 .replace("ইউটিউব", "").replace("ওপেন করো", "").replace("গান ছাড়ো", "").replace("গান চালাও", "").trim()
@@ -178,7 +189,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // টিকটক
+        // ৫. টিকটক ও স্ক্রল
         if (lower.contains("tiktok") || lower.contains("টিকটক")) {
             if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ")) {
                 speak("স্যার, স্ক্রল করছি")
@@ -190,14 +201,13 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // স্ক্রল
         if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ")) {
             speak("স্যার, স্ক্রল করে দিয়েছি")
             MyAccessibilityService.instance?.scrollDown()
             return
         }
 
-        // মেসেঞ্জার
+        // ৬. মেসেঞ্জার
         if (lower.contains("messenger") || lower.contains("মেসেঞ্জার") || lower.contains("মেসেজ")) {
             val msg = command.replace("মেসেঞ্জার", "").replace("মেসেজ", "").replace("পাঠাও", "").replace("লেখো", "").trim()
             speak("স্যার, মেসেঞ্জারে টাইপ করছি")
@@ -205,18 +215,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // কল
-        if (lower.contains("call") || lower.contains("কল")) {
-            val sim = if (lower.contains("২") || lower.contains("2")) 2 else 1
-            val rawName = command.replace("কল দাও", "").replace("কল করো", "")
-                .replace("call", "").replace("sim 2", "").replace("sim 1", "").trim()
-            val cleanName = rawName.removeSuffix("কে").removeSuffix("রে").trim()
-            speak("স্যার, $cleanName কে কল দিচ্ছি")
-            makeCall(cleanName, sim)
-            return
-        }
-
-        // যেকোনো অ্যাপ ওপেন করা
+        // ৭. যেকোনো অ্যাপ ওপেন করা
         if (lower.contains("open") || lower.contains("ওপেন") || lower.contains("খোলো") || lower.contains("যাও")) {
             val appName = command.replace("open", "", ignoreCase = true)
                 .replace("ওপেন করো", "").replace("খোলো", "").replace("যাও", "").trim()
@@ -226,8 +225,88 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             }
         }
 
-        // অসীম সাধারণ প্রশ্ন ও উত্তর (Gemini AI)
+        // ৮. সাধারণ সব কথার উত্তর (Gemini AI)
         talkWithGeminiAi(command)
+    }
+
+    // স্মার্ট কল সিস্টেম (বাংলা বনাম ইংলিশ নাম "Mim 01" নিখুঁত ম্যাচিং)
+    private fun smartPhoneCall(target: String, simSlot: Int) {
+        // যদি সরাসরি নম্বর বলে (যেমন: 017...)
+        val digitsOnly = target.replace(Regex("[^0-9+]"), "")
+        if (digitsOnly.length >= 6) {
+            dialNumber(digitsOnly, simSlot)
+            return
+        }
+
+        val resolvedNumber = findContactNumberSmart(target)
+        if (resolvedNumber != null) {
+            dialNumber(resolvedNumber, simSlot)
+        } else {
+            speak("স্যার, কন্টাক্টে $target নামটি খুঁজে পাওয়া যায়নি")
+        }
+    }
+
+    private fun findContactNumberSmart(queryName: String): String? {
+        val cr = contentResolver
+        val cursor = cr.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
+            null, null, null
+        ) ?: return null
+
+        val cleanQuery = queryName.lowercase().trim()
+        val englishPhonetic = convertBanglaToEnglishSound(cleanQuery)
+
+        var bestMatchNumber: String? = null
+
+        cursor.use {
+            val nameIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+            val numIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+
+            while (it.moveToNext()) {
+                val contactName = it.getString(nameIndex)?.lowercase() ?: ""
+                val contactNumber = it.getString(numIndex) ?: ""
+
+                // ১. সরাসরি মিল
+                if (contactName.contains(cleanQuery)) {
+                    return contactNumber
+                }
+
+                // ২. বাংলা ধ্বনি অনুযায়ী ইংলিশ নাম ম্যাচ (যেমন: মিম -> mim 01)
+                if (englishPhonetic.isNotEmpty() && contactName.contains(englishPhonetic)) {
+                    bestMatchNumber = contactNumber
+                    break
+                }
+            }
+        }
+        return bestMatchNumber
+    }
+
+    // সাধারণ বাংলা নামকে ইংলিশ উচ্চারণে রূপান্তর (মিম -> mim, রতন -> roton)
+    private fun convertBanglaToEnglishSound(bangla: String): String {
+        return bangla.replace("মিম", "mim")
+            .replace("রতন", "roton")
+            .replace("আম্মু", "ammu")
+            .replace("মা", "mom")
+            .replace("বাবা", "baba")
+            .replace("ভাই", "bhai")
+            .replace("সাকিব", "sakib")
+            .replace("রাব্বি", "rabbi")
+            .replace("রাকিব", "rakib")
+            .replace("হাসান", "hasan")
+            .replace("বন্ধু", "friend")
+    }
+
+    private fun dialNumber(number: String, simSlot: Int) {
+        val telecomManager = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+        val accounts = telecomManager.callCapablePhoneAccounts
+        val selectedAccount: PhoneAccountHandle? = if (simSlot == 2 && accounts.size > 1) accounts[1] else accounts.firstOrNull()
+
+        val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            selectedAccount?.let { putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) }
+        }
+        try { startActivity(callIntent) } catch (e: Exception) {}
     }
 
     private fun toggleTorch(enable: Boolean) {
@@ -357,37 +436,6 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         try {
             windowManager?.addView(floatingOrbView, layoutParams)
         } catch (e: Exception) {}
-    }
-
-    private fun makeCall(contactName: String, simSlot: Int) {
-        val number = getPhoneNumber(contactName)
-        if (number == null) {
-            speak("স্যার, কন্টাক্টে $contactName খুঁজে পাওয়া যায়নি")
-            return
-        }
-
-        val telecomManager = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-        val accounts = telecomManager.callCapablePhoneAccounts
-        val selectedAccount: PhoneAccountHandle? = if (simSlot == 2 && accounts.size > 1) accounts[1] else accounts.firstOrNull()
-
-        val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            selectedAccount?.let { putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) }
-        }
-        try { startActivity(callIntent) } catch (e: Exception) {}
-    }
-
-    private fun getPhoneNumber(name: String): String? {
-        val cursor = contentResolver.query(
-            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-            arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
-            "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
-            arrayOf("%$name%"),
-            null
-        )
-        var number: String? = null
-        cursor?.use { if (it.moveToFirst()) number = it.getString(0) }
-        return number
     }
 
     private fun createNotificationChannel() {
