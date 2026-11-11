@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="#121212"
+    android:padding="24dp">
+
+    <!-- অ্যাপ টাইটেল -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Janeman AI Assistant"
+        android:textColor="#FFFFFF"
+        android:textSize="26sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp" />
+
+    <!-- স্ট্যাটাস টেক্সট (অ্যাসিস্ট্যান্ট চলছে কি না) -->
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Status: Assistant is OFF"
+        android:textColor="#AAAAAA"
+        android:textSize="16sp"
+        android:layout_marginBottom="40dp" />
+
+    <!-- অ্যাসিস্ট্যান্ট অন/অফ করার মূল সুইচ -->
+    <Button
+        android:id="@+id/btnToggleAssistant"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:text="START ASSISTANT"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:backgroundTint="#00E676"
+        android:textColor="#000000"
+        android:layout_marginBottom="16dp" />
+
+    <!-- মেসেঞ্জার টাইপ ও সোয়াইপ পারমিশন অন করার বাটন -->
+    <Button
+        android:id="@+id/btnEnableAccessibility"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:text="Enable Accessibility (Messenger/Scroll)"
+        android:textSize="13sp"
+        android:backgroundTint="#2979FF"
+        android:textColor="#FFFFFF" />
+
+</LinearLayout>
