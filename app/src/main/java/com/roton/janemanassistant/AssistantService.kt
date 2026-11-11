@@ -6,6 +6,9 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -20,6 +23,11 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import com.google.ai.client.generativeai.GenerativeModel
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +45,10 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
     private var isListening = false
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private var isTorchOn = false
+    private var windowManager: WindowManager? = null
+    private var floatingOrbView: View? = null
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -51,7 +63,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 tts?.setLanguage(Locale.US)
             }
-            speak("ইয়েস স্যার! জারভিস অনলাইন। বলুন আমি কী করতে পারি?")
+            speak("ইয়েস স্যার! জারভিস সিস্টেম পুরোপুরি অনলাইন। বলুন আমি কীভাবে সাহায্য করতে পারি?")
         }
     }
 
@@ -62,14 +74,17 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startListening()
+        if (intent?.getBooleanExtra("TOGGLE_FLOATING", false) == true) {
+            toggleFloatingOrb()
+        } else {
+            startListening()
+        }
         return START_STICKY
     }
 
-    private fun broadcastTelemetry(userSaid: String, aiAction: String) {
+    private fun broadcastTelemetry(logText: String) {
         val intent = Intent("JARVIS_TELEMETRY").apply {
-            putExtra("userSaid", userSaid)
-            putExtra("aiAction", aiAction)
+            putExtra("log", logText)
             setPackage(packageName)
         }
         sendBroadcast(intent)
@@ -79,7 +94,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
             setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
-                    broadcastTelemetry("User: (শুনছি স্যার... বলুন)", "AI: Listening...")
+                    broadcastTelemetry("Jarvis: শুনছি স্যার... বলুন।")
                 }
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
@@ -96,7 +111,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     if (!matches.isNullOrEmpty()) {
                         val command = matches[0]
-                        handleSmartMasterEngine(command)
+                        handleCommand(command)
                     }
                     if (isListening) {
                         mainHandler.postDelayed({ startListening() }, 1500)
@@ -118,18 +133,31 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         try { speechRecognizer?.startListening(intent) } catch (e: Exception) {}
     }
 
-    // মাস্টার ইঞ্জিন: সিস্টেম কাজ + Gemini AI চ্যাট
-    private fun handleSmartMasterEngine(command: String) {
+    private fun handleCommand(command: String) {
         val lower = command.lowercase(Locale.ROOT)
-        broadcastTelemetry("You: \"$command\"", "AI: প্রসেস করছি...")
+        broadcastTelemetry("You Said: \"$command\"")
 
-        // ১. ইউটিউব প্লে
+        // ১. ফ্ল্যাশলাইট / টর্চ অন-অফ
+        if (lower.contains("torch") || lower.contains("টর্চ") || lower.contains("লাইট") || lower.contains("flash")) {
+            if (lower.contains("বন্ধ") || lower.contains("off")) {
+                toggleTorch(false)
+                speak("স্যার, টর্চ বন্ধ করে দিয়েছি")
+                broadcastTelemetry("Jarvis: টর্চ বন্ধ করা হয়েছে।")
+            } else {
+                toggleTorch(true)
+                speak("স্যার, টর্চ জ্বালিয়ে দিয়েছি")
+                broadcastTelemetry("Jarvis: টর্চ জ্বালানো হয়েছে।")
+            }
+            return
+        }
+
+        // ২. ইউটিউব
         if (lower.contains("youtube") || lower.contains("ইউটিউব") || lower.contains("গান") || lower.contains("song")) {
             val query = command.replace("youtube", "", ignoreCase = true)
                 .replace("ইউটিউব", "").replace("ওপেন করো", "").replace("গান ছাড়ো", "").replace("গান চালাও", "").trim()
             val finalQuery = if (query.isEmpty()) "Ashes band songs" else query
-            speak("স্যার, ইউটিউবে $finalQuery চালিয়ে দিচ্ছি")
-            broadcastTelemetry("You: $command", "AI: Playing YouTube -> $finalQuery")
+            speak("স্যার, ইউটিউবে $finalQuery ছাড়া হচ্ছে")
+            broadcastTelemetry("Jarvis: Playing YouTube -> $finalQuery")
 
             val intent = Intent(Intent.ACTION_SEARCH).apply {
                 setPackage("com.google.android.youtube")
@@ -145,71 +173,65 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // ২. টিকটক ওপেন ও স্ক্রল
+        // ৩. টিকটক ওপেন ও স্ক্রল
         if (lower.contains("tiktok") || lower.contains("টিকটক")) {
             if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ")) {
-                if (MyAccessibilityService.instance == null) {
-                    speak("স্যার, অনুগ্রহ করে অ্যাপে গিয়ে অ্যাক্সেসিবিলিটি অন করুন")
-                    return
-                }
                 speak("স্যার, স্ক্রল করছি")
                 MyAccessibilityService.instance?.scrollDown()
-                return
             } else {
                 speak("স্যার, টিকটক খুলে দিচ্ছি")
                 openDirectApp("com.zhiliaoapp.musically", "com.ss.android.ugc.trill")
-                return
             }
+            return
         }
 
-        // ৩. সাধারণ স্ক্রল
+        // ৪. স্ক্রল
         if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ")) {
-            if (MyAccessibilityService.instance == null) {
-                speak("স্যার, আগে অ্যাক্সেসিবিলিটি অন করে নিন")
-                return
-            }
-            speak("স্যার, স্ক্রল করে দিয়েছি")
+            speak("স্যার, স্ক্রল করছি")
             MyAccessibilityService.instance?.scrollDown()
             return
         }
 
-        // ৪. মেসেঞ্জার
+        // ৫. মেসেঞ্জার
         if (lower.contains("messenger") || lower.contains("মেসেঞ্জার") || lower.contains("মেসেজ")) {
             val msg = command.replace("মেসেঞ্জার", "").replace("মেসেজ", "").replace("পাঠাও", "").replace("লেখো", "").trim()
-            if (MyAccessibilityService.instance == null) {
-                speak("স্যার, অ্যাক্সেসিবিলিটি পারমিশন দরকার")
-                return
-            }
             speak("স্যার, মেসেঞ্জারে টাইপ করছি")
             MyAccessibilityService.instance?.typeAndSendMessage(msg)
             return
         }
 
-        // ৫. কল দেওয়া (সিম ১ বা ২)
+        // ৬. কল দেওয়া
         if (lower.contains("call") || lower.contains("কল")) {
             val sim = if (lower.contains("২") || lower.contains("2")) 2 else 1
             val rawName = command.replace("কল দাও", "").replace("কল করো", "")
                 .replace("call", "").replace("sim 2", "").replace("sim 1", "").trim()
-            // নামের শেষের 'কে' বা বিভক্তি কেটে ফেলা
             val cleanName = rawName.removeSuffix("কে").removeSuffix("রে").trim()
-            speak("স্যার, $cleanName কে সিম $sim দিয়ে কল দিচ্ছি")
+            speak("স্যার, $cleanName কে কল দিচ্ছি")
             makeCall(cleanName, sim)
             return
         }
 
-        // ৬. যেকোনো অ্যাপ ওপেন (Facebook, WhatsApp, Camera ইত্যাদি)
-        if (lower.contains("open") || lower.contains("ওপেন") || lower.contains("যাও") || lower.contains("খোলো")) {
+        // ৭. অ্যাপ ওপেন
+        if (lower.contains("open") || lower.contains("ওপেন") || lower.contains("খোলো") || lower.contains("যাও")) {
             val appName = command.replace("open", "", ignoreCase = true)
                 .replace("ওপেন করো", "").replace("খোলো", "").replace("যাও", "").trim()
-            val opened = openUniversalApp(appName)
-            if (opened) {
+            if (openUniversalApp(appName)) {
                 speak("স্যার, $appName খুলে দিয়েছি")
                 return
             }
         }
 
-        // ৭. বাকি সব ক্ষেত্রে: Gemini AI এর সাথে সরাসরি কথা বলা (যেমন চ্যাটজিপিটি বা জেমিনাই)
+        // ৮. সাধারণ সব কথার বুদ্ধিমান উত্তর (Gemini AI Chat)
         talkWithGeminiAi(command)
+    }
+
+    private fun toggleTorch(enable: Boolean) {
+        try {
+            val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val cameraId = cameraManager.cameraIdList[0]
+            cameraManager.setTorchMode(cameraId, enable)
+            isTorchOn = enable
+        } catch (e: Exception) {}
     }
 
     private fun openDirectApp(vararg packageNames: String): Boolean {
@@ -227,14 +249,9 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun openUniversalApp(appName: String): Boolean {
         val lower = appName.lowercase()
-        // সরাসরি জনপ্রিয় অ্যাপগুলোর জন্য ফাস্ট লঞ্চার
         if (lower.contains("facebook") || lower.contains("ফেসবুক")) return openDirectApp("com.facebook.katana")
         if (lower.contains("whatsapp") || lower.contains("হোয়াটসঅ্যাপ")) return openDirectApp("com.whatsapp")
         if (lower.contains("messenger") || lower.contains("মেসেঞ্জার")) return openDirectApp("com.facebook.orca")
-        if (lower.contains("camera") || lower.contains("ক্যামেরা")) {
-            val intent = Intent("android.media.action.IMAGE_CAPTURE").apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-            try { startActivity(intent); return true } catch (e: Exception) {}
-        }
 
         val pm = packageManager
         val packages = pm.getInstalledApplications(0)
@@ -252,31 +269,97 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         return false
     }
 
-    // জীবন্ত Gemini AI উত্তর (সবসময় স্যার বলে কথা বলবে)
     private fun talkWithGeminiAi(command: String) {
         serviceScope.launch(Dispatchers.IO) {
             try {
                 val model = GenerativeModel(modelName = "gemini-1.5-flash", apiKey = GEMINI_API_KEY)
-                val prompt = "You are Jarvis, a very smart personal assistant for your boss. Address the user respectfully as 'Sir' (স্যার) in Bengali. Give a friendly, intelligent and direct answer in 1-2 Bengali sentences to: $command"
+                val prompt = "You are JARVIS, an extremely smart, polite, and loyal AI assistant created by Tony Stark. The user is your boss. Always address the user as 'Sir' (স্যার) in Bengali. Answer this question naturally, intelligently and directly in 1-2 Bengali sentences: $command"
                 val res = model.generateContent(prompt).text ?: ""
                 val cleanAnswer = res.trim()
                 
                 launch(Dispatchers.Main) {
                     speak(cleanAnswer)
-                    broadcastTelemetry("You: $command", "Jarvis: $cleanAnswer")
+                    broadcastTelemetry("Jarvis: $cleanAnswer")
                 }
             } catch (e: Exception) {
                 launch(Dispatchers.Main) {
-                    speak("স্যার, আপনার নির্দেশটি বুঝতে পেরেছি। দয়া করে আরেকবার বলুন।")
+                    speak("স্যার, আমি আপনার নির্দেশ বুঝতে পেরেছি। দয়া করে আরেকবার বলুন।")
+                    broadcastTelemetry("Jarvis: নির্দেশটি আবার বলুন, স্যার।")
                 }
             }
         }
     }
 
+    // স্ক্রিনের উপর ভাসমান জারভিস বল (Floating Orb)
+    private fun toggleFloatingOrb() {
+        if (floatingOrbView != null) {
+            windowManager?.removeView(floatingOrbView)
+            floatingOrbView = null
+            return
+        }
+
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val layoutParams = WindowManager.LayoutParams(
+            160, 160,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 50
+            y = 200
+        }
+
+        val orb = TextView(this).apply {
+            text = "JARVIS"
+            textSize = 10f
+            setTextColor(Color.BLACK)
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#00F2FE"))
+            setOnTouchListener(object : View.OnTouchListener {
+                private var initialX = 0
+                private var initialY = 0
+                private var touchX = 0f
+                private var touchY = 0f
+
+                override fun onTouch(v: View?, event: MotionEvent): Boolean {
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            initialX = layoutParams.x
+                            initialY = layoutParams.y
+                            touchX = event.rawX
+                            touchY = event.rawY
+                            return true
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            layoutParams.x = initialX + (event.rawX - touchX).toInt()
+                            layoutParams.y = initialY + (event.rawY - touchY).toInt()
+                            windowManager?.updateViewLayout(floatingOrbView, layoutParams)
+                            return true
+                        }
+                        MotionEvent.ACTION_UP -> {
+                            if (Math.abs(event.rawX - touchX) < 10 && Math.abs(event.rawY - touchY) < 10) {
+                                speak("ইয়েস স্যার, বলুন!")
+                                startListening()
+                            }
+                            return true
+                        }
+                    }
+                    return false
+                }
+            })
+        }
+
+        floatingOrbView = orb
+        try {
+            windowManager?.addView(floatingOrbView, layoutParams)
+        } catch (e: Exception) {}
+    }
+
     private fun makeCall(contactName: String, simSlot: Int) {
         val number = getPhoneNumber(contactName)
         if (number == null) {
-            speak("স্যার, কন্টাক্টে $contactName নামটি খুঁজে পাওয়া যায়নি")
+            speak("স্যার, কন্টাক্টে $contactName খুঁজে পাওয়া যায়নি")
             return
         }
 
@@ -306,15 +389,15 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel("assistant_channel", "Jarvis Assistant", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel("assistant_channel", "JARVIS HUD", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
     }
 
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, "assistant_channel")
-            .setContentTitle("JARVIS AI ONLINE")
-            .setContentText("Awaiting command, Sir...")
+            .setContentTitle("JARVIS HUD ONLINE")
+            .setContentText("Awaiting voice command, Sir...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
     }
@@ -325,6 +408,9 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         speechRecognizer?.destroy()
         tts?.stop()
         tts?.shutdown()
+        if (floatingOrbView != null) {
+            windowManager?.removeView(floatingOrbView)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
