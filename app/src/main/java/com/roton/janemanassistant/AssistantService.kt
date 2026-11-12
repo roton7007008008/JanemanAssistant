@@ -7,6 +7,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.PixelFormat
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -21,8 +23,11 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
-import android.telecom.PhoneAccountHandle
-import android.telecom.TelecomManager
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.widget.ImageView
 import androidx.core.app.NotificationCompat
 import com.google.ai.client.generativeai.GenerativeModel
 import kotlinx.coroutines.CoroutineScope
@@ -40,12 +45,18 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
     private var isListening = false
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private var windowManager: WindowManager? = null
+    private var floatingBubbleView: View? = null
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         startForeground(101, buildNotification())
         tts = TextToSpeech(this, this)
         initSpeechRecognizer()
+
+        // স্ক্রিনে ভাসমান বাবল চালু
+        showFloatingBubble()
     }
 
     override fun onInit(status: Int) {
@@ -54,7 +65,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 tts?.setLanguage(Locale.US)
             }
-            speak("আমি Janeman Assistant বলছি। আমি সম্পূর্ণ প্রস্তুত আছি!")
+            speak("আমি Janeman Assistant বলছি। আমি রেডি আছি বস!")
         }
     }
 
@@ -62,6 +73,69 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         mainHandler.post {
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "TTS_ID")
         }
+    }
+
+    // হোমস্ক্রিনের ভাসমান বাবল
+    private fun showFloatingBubble() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) return
+        if (floatingBubbleView != null) return
+
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val params = WindowManager.LayoutParams(
+            160, 160,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 30
+            y = 250
+        }
+
+        val bubble = ImageView(this).apply {
+            try {
+                setImageResource(R.drawable.app_icon)
+            } catch (e: Exception) {
+                setImageResource(android.R.drawable.ic_btn_speak_now)
+            }
+            setBackgroundColor(Color.TRANSPARENT)
+
+            setOnTouchListener(object : View.OnTouchListener {
+                private var initialX = 0
+                private var initialY = 0
+                private var touchX = 0f
+                private var touchY = 0f
+
+                override fun onTouch(v: View?, event: MotionEvent): Boolean {
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            initialX = params.x
+                            initialY = params.y
+                            touchX = event.rawX
+                            touchY = event.rawY
+                            return true
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            params.x = initialX + (event.rawX - touchX).toInt()
+                            params.y = initialY + (event.rawY - touchY).toInt()
+                            windowManager?.updateViewLayout(floatingBubbleView, params)
+                            return true
+                        }
+                        MotionEvent.ACTION_UP -> {
+                            if (Math.abs(event.rawX - touchX) < 15 && Math.abs(event.rawY - touchY) < 15) {
+                                speak("শুনছি বস, বলুন!")
+                                startListening()
+                            }
+                            return true
+                        }
+                    }
+                    return false
+                }
+            })
+        }
+
+        floatingBubbleView = bubble
+        try { windowManager?.addView(floatingBubbleView, params) } catch (e: Exception) {}
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -121,7 +195,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun handleSmartCommand(command: String) {
         val lower = command.lowercase(Locale.ROOT)
-        broadcastTelemetry("You: \"$command\"", "AI: কাজ করছি...")
+        broadcastTelemetry("You: \"$command\"", "AI: চিন্তা করছি...")
 
         // ১. ইউটিউব গান
         if (lower.contains("youtube") || lower.contains("ইউটিউব") || lower.contains("গান") || lower.contains("song")) {
@@ -134,130 +208,117 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                 putExtra("query", finalQuery)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
-            try { startActivity(intent) } catch (e: Exception) {
-                val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=$finalQuery")).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                startActivity(web)
+            try { startActivity(intent) } catch (e: Exception) {}
+            return
+        }
+
+        // ২. মেসেঞ্জারে মেসেজ টাইপ ও পাঠানো (প্রথমে মেসেঞ্জার ওপেন করে তারপর টাইপ করবে)
+        if (lower.contains("messenger") || lower.contains("মেসেঞ্জার") || lower.contains("মেসেজ")) {
+            val msg = command.replace("মেসেঞ্জার", "").replace("মেসেজ", "").replace("পাঠাও", "").replace("লেখো", "").trim()
+            speak("মেসেঞ্জারে মেসেজ টাইপ করছি")
+            
+            val pm = packageManager
+            val intent = pm.getLaunchIntentForPackage("com.facebook.orca")
+            if (intent != null) {
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                startActivity(intent)
+                
+                // ১.২ সেকেন্ড পর লেখাটি টাইপ ও সেন্ড করবে
+                mainHandler.postDelayed({
+                    MyAccessibilityService.instance?.typeAndSendMessage(msg)
+                }, 1200)
             }
             return
         }
 
-        // ২. টিকটক স্ক্রল
+        // ৩. কল দেওয়া (১০০% ডিরেক্ট কল ফিক্স)
+        if (lower.contains("call") || lower.contains("কল")) {
+            val name = command.replace("কল দাও", "").replace("কল করো", "")
+                .replace("call", "", ignoreCase = true).replace("কে", "").replace("রে", "").trim()
+            
+            speak("$name কে কল দিচ্ছি")
+            directCallNumber(name)
+            return
+        }
+
+        // ৪. টিকটক স্ক্রল
         if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ") || lower.contains("পাল্টাও")) {
             speak("স্ক্রল করছি")
             MyAccessibilityService.instance?.scrollDown()
             return
         }
 
-        // ৩. কল দেওয়া
-        if (lower.contains("call") || lower.contains("কল")) {
-            val sim = if (lower.contains("২") || lower.contains("2")) 2 else 1
-            val name = command.replace("কল দাও", "").replace("কল করো", "")
-                .replace("call", "", ignoreCase = true).replace("sim 2", "").replace("sim 1", "").replace("কে", "").trim()
-            speak("$name কে কল দিচ্ছি")
-            makeCall(name, sim)
-            return
-        }
-
-        // ৪. সরাসরি যেকোনো অ্যাপ ওপেন করার নিশ্চিত ইঞ্জিন (Direct Launcher)
+        // ৫. যেকোনো অ্যাপ ওপেন
         val appKeywords = listOf("খোলো", "খোল", "ওপেন", "চালাও", "যাও", "ঢোকো", "open")
-        var isApp = false
         for (k in appKeywords) {
             if (lower.contains(k)) {
-                isApp = true
-                break
+                val cleanApp = command.replace(k, "", ignoreCase = true).replace("অ্যাপে", "").replace("এ", "").trim()
+                if (launchAppDirect(cleanApp)) {
+                    speak("$cleanApp খুলে দিয়েছি")
+                    return
+                }
             }
         }
 
-        if (isApp) {
-            val cleanApp = command.replace("খোলো", "").replace("খোল", "").replace("ওপেন করো", "")
-                .replace("চালাও", "").replace("যাও", "").replace("ঢোকো", "").replace("open", "", ignoreCase = true)
-                .replace("অ্যাপে", "").replace("অ্যাপসে", "").replace("এ", "").replace("তে", "").trim()
-
-            val success = launchAppGuaranteed(cleanApp)
-            if (success) {
-                speak("$cleanApp খুলে দিয়েছি")
-            } else {
-                speak("স্যার, আপনার ফোনে $cleanApp অ্যাপটি খুঁজে পাওয়া যায়নি")
-            }
-            return
-        }
-
-        // ৫. সাধারণ প্রশ্ন হলে তবেই শুধু Gemini AI ডাকবে
+        // ৬. সাধারণ প্রশ্নের উত্তর (Gemini AI)
         callGeminiFallback(command)
     }
 
-    // যেকোনো অ্যাপ গ্যারান্টি সহকারে ওপেন করার মেথড
-    private fun launchAppGuaranteed(rawName: String): Boolean {
-        val query = rawName.lowercase().trim()
-
-        // ১. সিস্টেম অ্যাপস সরাসরি লঞ্চ
-        try {
-            if (query.contains("ক্যামেরা") || query.contains("camera")) {
-                val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-                startActivity(intent)
-                return true
+    // সরাসরি ডায়াল করে কল দেওয়া
+    private fun directCallNumber(target: String) {
+        val number = getPhoneNumberSmart(target)
+        if (number != null) {
+            val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
-            if (query.contains("সেটিংস") || query.contains("settings")) {
-                val intent = Intent(Settings.ACTION_SETTINGS).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-                startActivity(intent)
-                return true
-            }
-            if (query.contains("গ্যালারি") || query.contains("ছবি") || query.contains("gallery") || query.contains("photos")) {
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    type = "image/*"
+            try {
+                startActivity(callIntent)
+            } catch (e: Exception) {
+                // কোনো সিকিউরিটি আটকালে ডায়ালপ্যাডে সরাসরি নম্বর বসিয়ে দেবে
+                val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number")).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
-                startActivity(intent)
-                return true
+                startActivity(dialIntent)
             }
-        } catch (e: Exception) {}
+        } else {
+            speak("স্যার, কন্টাক্টে $target পাওয়া যায়নি")
+        }
+    }
 
-        // ২. প্যাকেজ ধরে সরাসরি ওপেন
-        val directPackages = mapOf(
-            "টিকটক" to listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill"),
-            "tiktok" to listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill"),
-            "ফেসবুক" to listOf("com.facebook.katana", "com.facebook.lite"),
-            "facebook" to listOf("com.facebook.katana", "com.facebook.lite"),
-            "মেসেঞ্জার" to listOf("com.facebook.orca", "com.facebook.mlite"),
-            "messenger" to listOf("com.facebook.orca", "com.facebook.mlite"),
-            "হোয়াটসঅ্যাপ" to listOf("com.whatsapp"),
-            "whatsapp" to listOf("com.whatsapp"),
-            "বিকাশ" to listOf("com.bKash.customerapp"),
-            "bkash" to listOf("com.bKash.customerapp"),
-            "নগদ" to listOf("com.konasl.nagad"),
-            "nagad" to listOf("com.konasl.nagad"),
-            "ফ্রি ফায়ার" to listOf("com.dts.freefireth", "com.dts.freefiremax"),
-            "ক্রোম" to listOf("com.android.chrome"),
-            "chrome" to listOf("com.android.chrome"),
-            "ক্যালকুলেটর" to listOf("com.google.android.calculator", "com.android.calculator2", "com.coloros.calculator"),
-            "calculator" to listOf("com.google.android.calculator", "com.android.calculator2", "com.coloros.calculator")
-        )
+    private fun getPhoneNumberSmart(name: String): String? {
+        val cleanName = name.lowercase().trim()
+        val englishSound = cleanName.replace("মিম", "mim").replace("রতন", "roton")
+        val cursor = contentResolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
+            null, null, null
+        ) ?: return null
 
-        for ((key, pkgs) in directPackages) {
-            if (query.contains(key)) {
-                for (pkg in pkgs) {
-                    val intent = packageManager.getLaunchIntentForPackage(pkg)
-                    if (intent != null) {
-                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        startActivity(intent)
-                        return true
-                    }
+        cursor.use {
+            val nameIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+            val numIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            while (it.moveToNext()) {
+                val cName = it.getString(nameIdx)?.lowercase() ?: ""
+                val cNum = it.getString(numIdx) ?: ""
+                if (cName.contains(cleanName) || cName.contains(englishSound)) {
+                    return cNum
                 }
             }
         }
+        return null
+    }
 
-        // ৩. পুরো ফোনের সমস্ত অ্যাপ খুঁজে বের করা
+    private fun launchAppDirect(appName: String): Boolean {
+        val lower = appName.lowercase()
         val pm = packageManager
         val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
         for (app in packages) {
             val label = pm.getApplicationLabel(app).toString().lowercase()
-            if (label.contains(query) || app.packageName.lowercase().contains(query)) {
-                val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
-                if (launchIntent != null) {
-                    launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    startActivity(launchIntent)
+            if (label.contains(lower) || app.packageName.lowercase().contains(lower)) {
+                val intent = pm.getLaunchIntentForPackage(app.packageName)
+                if (intent != null) {
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    startActivity(intent)
                     return true
                 }
             }
@@ -272,36 +333,8 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                 val res = model.generateContent("Give a 1 short sentence answer in Bengali to: $command").text ?: ""
                 speak(res)
                 broadcastTelemetry("You: $command", "Jarvis: $res")
-            } catch (e: Exception) {
-                // কোনো ভুল হলে চুপ থাকবে, আর ওই এক কথা বারবার বলবে না
-            }
+            } catch (e: Exception) {}
         }
-    }
-
-    private fun makeCall(contactName: String, simSlot: Int) {
-        val number = getPhoneNumber(contactName) ?: return
-        val telecomManager = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-        val accounts = telecomManager.callCapablePhoneAccounts
-        val selectedAccount: PhoneAccountHandle? = if (simSlot == 2 && accounts.size > 1) accounts[1] else accounts.firstOrNull()
-
-        val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            selectedAccount?.let { putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) }
-        }
-        try { startActivity(callIntent) } catch (e: Exception) {}
-    }
-
-    private fun getPhoneNumber(name: String): String? {
-        val cursor = contentResolver.query(
-            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-            arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
-            "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
-            arrayOf("%$name%"),
-            null
-        )
-        var number: String? = null
-        cursor?.use { if (it.moveToFirst()) number = it.getString(0) }
-        return number
     }
 
     private fun createNotificationChannel() {
@@ -313,8 +346,8 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, "assistant_channel")
-            .setContentTitle("JANEMAN ONLINE")
-            .setContentText("Listening to your voice...")
+            .setContentTitle("JANEMAN ACTIVE")
+            .setContentText("Listening and ready on screen...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
     }
@@ -325,6 +358,10 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         speechRecognizer?.destroy()
         tts?.stop()
         tts?.shutdown()
+        if (floatingBubbleView != null) {
+            windowManager?.removeView(floatingBubbleView)
+            floatingBubbleView = null
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
