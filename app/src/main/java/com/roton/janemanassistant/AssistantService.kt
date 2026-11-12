@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ResolveInfo
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -29,7 +30,11 @@ import java.util.Locale
 
 class AssistantService : Service(), TextToSpeech.OnInitListener {
 
-    private val GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
+    private val GEMINI_API_KEY = "AQ.Ab8RN6LwpcqBwrQg-FX2RQbRVR_1lZFo8rWYwjzTfFxbgknvlQ"
+
+    // >>>>> AI BRAIN: ফোনের সব অ্যাপের স্বয়ংক্রিয় মেমোরি <<<<<
+    data class AppMemory(val label: String, val packageName: String, val phoneticKey: String)
+    private val aiAppBrain = mutableListOf<AppMemory>()
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
@@ -42,6 +47,10 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         createNotificationChannel()
         startForeground(101, buildNotification())
         tts = TextToSpeech(this, this)
+
+        // অ্যাপ চালু হওয়া মাত্রই পুরো ফোনের সব অ্যাপ স্ক্যান করে AI ব্রেইনে সেভ করা
+        scanAndBuildAppBrain()
+
         initSpeechRecognizer()
     }
 
@@ -51,7 +60,30 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 tts?.setLanguage(Locale.US)
             }
-            speak("আমি রেডি আছি বস!")
+            speak("আমি Janeman Assistant বলছি। আপনার ফোনের সব অ্যাপ স্ক্যান করে ব্রেইনে সেভ করে নিয়েছি বস!")
+        }
+    }
+
+    // AI এর ব্রেইনে পুরো ফোনের অ্যাপ মুখস্থ করিয়ে রাখা
+    private fun scanAndBuildAppBrain() {
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                aiAppBrain.clear()
+                val pm = packageManager
+                val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                }
+                val apps: List<ResolveInfo> = pm.queryIntentActivities(mainIntent, 0)
+
+                for (info in apps) {
+                    val appLabel = info.loadLabel(pm).toString()
+                    val pkgName = info.activityInfo.packageName
+                    val phonetic = convertToPhoneticSearchKey(appLabel)
+
+                    aiAppBrain.add(AppMemory(appLabel, pkgName, phonetic))
+                }
+                broadcastTelemetry("AI Brain", "মেমোরিতে ${aiAppBrain.size} টি অ্যাপ স্ক্যান করে সেভ করা হয়েছে")
+            } catch (e: Exception) {}
         }
     }
 
@@ -78,9 +110,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
     private fun initSpeechRecognizer() {
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
             setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {
-                    broadcastTelemetry("User: (শুনছি... বলুন)", "AI: কান খাড়া করে আছি...")
-                }
+                override fun onReadyForSpeech(params: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
@@ -99,7 +129,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                         handleSmartCommand(command)
                     }
                     if (isListening) {
-                        mainHandler.postDelayed({ startListening() }, 1500)
+                        mainHandler.postDelayed({ startListening() }, 1200)
                     }
                 }
 
@@ -120,7 +150,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun handleSmartCommand(command: String) {
         val lower = command.lowercase(Locale.ROOT)
-        broadcastTelemetry("You: \"$command\"", "AI: নির্দেশ পালন করছি...")
+        broadcastTelemetry("You: \"$command\"", "AI: চিন্তা করছি...")
 
         // ১. ইউটিউব গান
         if (lower.contains("youtube") || lower.contains("ইউটিউব") || lower.contains("গান") || lower.contains("song")) {
@@ -128,16 +158,12 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                 .replace("ইউটিউব", "").replace("ওপেন করো", "").replace("গান ছাড়ো", "").replace("গান চালাও", "").trim()
             val finalQuery = if (query.isEmpty()) "Ashes band songs" else query
             speak("ইউটিউবে $finalQuery ছাড়া হচ্ছে")
-            broadcastTelemetry("You: $command", "AI: YouTube -> $finalQuery")
-
             val intent = Intent(Intent.ACTION_SEARCH).apply {
                 setPackage("com.google.android.youtube")
                 putExtra("query", finalQuery)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
-            try {
-                startActivity(intent)
-            } catch (e: Exception) {
+            try { startActivity(intent) } catch (e: Exception) {
                 val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=$finalQuery")).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
@@ -146,51 +172,34 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // ২. ভলিউম
-        if (lower.contains("volume") || lower.contains("ভলিউম") || lower.contains("আওয়াজ")) {
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            if (lower.contains("কমাও") || lower.contains("down") || lower.contains("low")) {
-                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
-                speak("ভলিউম কমিয়ে দিয়েছি")
-            } else {
-                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
-                speak("ভলিউম বাড়িয়ে দিয়েছি")
-            }
-            return
-        }
-
-        // ৩. টিকটক স্ক্রল
-        if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ") || lower.contains("tiktok")) {
+        // ২. টিকটক স্ক্রল
+        if (lower.contains("scroll") || lower.contains("স্ক্রল") || lower.contains("সোয়াইপ") || lower.contains("পাল্টাও")) {
             speak("স্ক্রল করছি")
             MyAccessibilityService.instance?.scrollDown()
             return
         }
 
-        // ৪. মেসেঞ্জার
-        if (lower.contains("messenger") || lower.contains("মেসেঞ্জার") || lower.contains("মেসেজ")) {
-            val msg = command.replace("মেসেঞ্জার", "").replace("মেসেজ", "").replace("পাঠাও", "").trim()
-            speak("মেসেঞ্জারে টাইপ করছি")
-            MyAccessibilityService.instance?.typeAndSendMessage(msg)
-            return
-        }
-
-        // ৫. কল দেওয়া
+        // ৩. কল দেওয়া
         if (lower.contains("call") || lower.contains("কল")) {
             val sim = if (lower.contains("২") || lower.contains("2")) 2 else 1
             val name = command.replace("কল দাও", "").replace("কল করো", "")
-                .replace("call", "").replace("sim 2", "").replace("sim 1", "").trim()
-            speak("$name কে সিম $sim দিয়ে কল দিচ্ছি")
+                .replace("call", "", ignoreCase = true).replace("sim 2", "").replace("sim 1", "").replace("কে", "").trim()
+            speak("$name কে কল দিচ্ছি")
             makeCall(name, sim)
             return
         }
 
-        // ৬. যেকোনো অ্যাপ ওপেন
-        if (lower.contains("open") || lower.contains("ওপেন") || lower.contains("যাও") || lower.contains("খোলো")) {
-            val appName = command.replace("open", "", ignoreCase = true)
-                .replace("ওপেন করো", "").replace("খোলো", "").replace("যাও", "").trim()
-            val opened = openAnyAppByName(appName)
-            if (opened) {
-                speak("$appName খুলে দিয়েছি")
+        // ৪. AI BRAIN থেকে অ্যাপ ওপেন করা (যেকোনো ফোন ও যেকোনো অ্যাপের জন্য)
+        if (lower.contains("খোলো") || lower.contains("খোল") || lower.contains("ওপেন") || 
+            lower.contains("চালাও") || lower.contains("যাও") || lower.contains("ঢোকো") || lower.contains("open")) {
+            
+            val appQuery = command.replace("খোলো", "").replace("খোল", "").replace("ওপেন করো", "")
+                .replace("চালাও", "").replace("যাও", "").replace("ঢোকো", "").replace("open", "", ignoreCase = true)
+                .replace("অ্যাপে", "").replace("অ্যাপসে", "").replace("এ", "").replace("তে", "").trim()
+
+            val openedAppName = openFromAiBrain(appQuery)
+            if (openedAppName != null) {
+                speak("$openedAppName খুলে দিয়েছি")
                 return
             }
         }
@@ -199,21 +208,54 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         callGeminiFallback(command)
     }
 
-    private fun openAnyAppByName(appName: String): Boolean {
-        val pm = packageManager
-        val packages = pm.getInstalledApplications(0)
-        for (app in packages) {
-            val label = pm.getApplicationLabel(app).toString().lowercase()
-            if (label.contains(appName.lowercase())) {
-                val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
-                launchIntent?.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                try {
+    // AI BRAIN মেমোরি থেকে অ্যাপ খুঁজে বের করে সরাসরি ওপেন করা
+    private fun openFromAiBrain(query: String): String? {
+        val cleanQuery = query.lowercase().trim()
+        val englishKey = convertBanglaToEnglishSound(cleanQuery)
+
+        for (app in aiAppBrain) {
+            val labelLower = app.label.lowercase()
+            val pkgLower = app.packageName.lowercase()
+
+            // ১. ব্রেইনে সংরক্ষিত নামের সাথে সরাসরি মিল
+            if (labelLower.contains(cleanQuery) || labelLower.contains(englishKey) ||
+                pkgLower.contains(cleanQuery) || pkgLower.contains(englishKey) ||
+                app.phoneticKey.contains(englishKey)) {
+
+                val launchIntent = packageManager.getLaunchIntentForPackage(app.packageName)
+                if (launchIntent != null) {
+                    launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     startActivity(launchIntent)
-                    return true
-                } catch (e: Exception) {}
+                    return app.label
+                }
             }
         }
-        return false
+        return null
+    }
+
+    // বাংলা উচ্চারণকে ধ্বনি অনুযায়ী রূপান্তর (ক্যালকুলেটর -> calculator, ক্যামেরা -> camera ইত্যাদি)
+    private fun convertBanglaToEnglishSound(bangla: String): String {
+        return bangla.replace("ক্যালকুলেটর", "calculator")
+            .replace("ক্যামেরা", "camera")
+            .replace("গ্যালারি", "gallery")
+            .replace("ছবি", "photos")
+            .replace("সেটিংস", "settings")
+            .replace("ক্রোম", "chrome")
+            .replace("প্লে স্টোর", "vending")
+            .replace("মেসেজ", "message")
+            .replace("ঘড়ি", "clock")
+            .replace("ফাইল", "file")
+            .replace("বিকাশ", "bkash")
+            .replace("নগদ", "nagad")
+            .replace("ফ্রি ফায়ার", "free fire")
+            .replace("টিকটক", "tiktok")
+            .replace("ফেসবুক", "facebook")
+            .replace("হোয়াটসঅ্যাপ", "whatsapp")
+            .replace("মেসেঞ্জার", "messenger")
+    }
+
+    private fun convertToPhoneticSearchKey(text: String): String {
+        return text.lowercase().replace(" ", "").replace("-", "")
     }
 
     private fun callGeminiFallback(command: String) {
@@ -225,7 +267,6 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                 broadcastTelemetry("You: $command", "Jarvis: $res")
             } catch (e: Exception) {
                 speak("আমি আপনার নির্দেশটি বুঝতে পেরেছি বস!")
-                broadcastTelemetry("You: $command", "AI: Command noted.")
             }
         }
     }
@@ -265,8 +306,8 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, "assistant_channel")
-            .setContentTitle("JARVIS ONLINE")
-            .setContentText("Listening to your voice...")
+            .setContentTitle("JANEMAN BRAIN ONLINE")
+            .setContentText("All apps indexed & listening...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
     }
