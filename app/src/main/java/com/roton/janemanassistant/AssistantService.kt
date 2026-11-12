@@ -7,6 +7,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ResolveInfo
+import android.graphics.Color
+import android.graphics.PixelFormat
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -15,12 +17,18 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.ContactsContract
+import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.widget.ImageView
 import androidx.core.app.NotificationCompat
 import com.google.ai.client.generativeai.GenerativeModel
 import kotlinx.coroutines.CoroutineScope
@@ -30,9 +38,9 @@ import java.util.Locale
 
 class AssistantService : Service(), TextToSpeech.OnInitListener {
 
-    private val GEMINI_API_KEY = "AQ.Ab8RN6LwpcqBwrQg-FX2RQbRVR_1lZFo8rWYwjzTfFxbgknvlQ"
+    private val GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
 
-    // >>>>> AI BRAIN: ফোনের সব অ্যাপের স্বয়ংক্রিয় মেমোরি <<<<<
+    // AI BRAIN
     data class AppMemory(val label: String, val packageName: String, val phoneticKey: String)
     private val aiAppBrain = mutableListOf<AppMemory>()
 
@@ -42,16 +50,21 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
     private var isListening = false
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    // হোমস্ক্রিন ভাসমান বাবল ভেরিয়েবল
+    private var windowManager: WindowManager? = null
+    private var floatingBubbleView: View? = null
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         startForeground(101, buildNotification())
         tts = TextToSpeech(this, this)
 
-        // অ্যাপ চালু হওয়া মাত্রই পুরো ফোনের সব অ্যাপ স্ক্যান করে AI ব্রেইনে সেভ করা
         scanAndBuildAppBrain()
-
         initSpeechRecognizer()
+
+        // হোমস্ক্রিনে মেসেঞ্জারের মতো ভাসমান বাবল তৈরি
+        showFloatingBubble()
     }
 
     override fun onInit(status: Int) {
@@ -60,11 +73,77 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 tts?.setLanguage(Locale.US)
             }
-            speak("আমি Janeman Assistant বলছি। আপনার ফোনের সব অ্যাপ স্ক্যান করে ব্রেইনে সেভ করে নিয়েছি বস!")
+            speak("আমি Janeman Assistant বলছি। আপনার হোমস্ক্রিনে বাবল চালু হয়ে গেছে বস!")
         }
     }
 
-    // AI এর ব্রেইনে পুরো ফোনের অ্যাপ মুখস্থ করিয়ে রাখা
+    // মেসেঞ্জার চ্যাট হেডের মতো ভাসমান বাবল তৈরি ও ড্র্যাগ কন্ট্রোল
+    private fun showFloatingBubble() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) return
+        if (floatingBubbleView != null) return
+
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+
+        val layoutParams = WindowManager.LayoutParams(
+            150, 150, // বাবলের সাইজ
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 30
+            y = 250
+        }
+
+        val bubble = ImageView(this).apply {
+            try {
+                setImageResource(R.drawable.app_icon)
+            } catch (e: Exception) {
+                setImageResource(android.R.drawable.ic_btn_speak_now)
+            }
+            setBackgroundColor(Color.TRANSPARENT)
+
+            setOnTouchListener(object : View.OnTouchListener {
+                private var initialX = 0
+                private var initialY = 0
+                private var touchX = 0f
+                private var touchY = 0f
+
+                override fun onTouch(v: View?, event: MotionEvent): Boolean {
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            initialX = layoutParams.x
+                            initialY = layoutParams.y
+                            touchX = event.rawX
+                            touchY = event.rawY
+                            return true
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            layoutParams.x = initialX + (event.rawX - touchX).toInt()
+                            layoutParams.y = initialY + (event.rawY - touchY).toInt()
+                            windowManager?.updateViewLayout(floatingBubbleView, layoutParams)
+                            return true
+                        }
+                        MotionEvent.ACTION_UP -> {
+                            // বাবলটিতে টাচ করলে সাথে সাথে কথা শুনবে
+                            if (Math.abs(event.rawX - touchX) < 15 && Math.abs(event.rawY - touchY) < 15) {
+                                speak("শুনছি বস, বলুন!")
+                                startListening()
+                            }
+                            return true
+                        }
+                    }
+                    return false
+                }
+            })
+        }
+
+        floatingBubbleView = bubble
+        try {
+            windowManager?.addView(floatingBubbleView, layoutParams)
+        } catch (e: Exception) {}
+    }
+
     private fun scanAndBuildAppBrain() {
         serviceScope.launch(Dispatchers.IO) {
             try {
@@ -78,11 +157,10 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                 for (info in apps) {
                     val appLabel = info.loadLabel(pm).toString()
                     val pkgName = info.activityInfo.packageName
-                    val phonetic = convertToPhoneticSearchKey(appLabel)
+                    val phonetic = appLabel.lowercase().replace(" ", "").replace("-", "")
 
                     aiAppBrain.add(AppMemory(appLabel, pkgName, phonetic))
                 }
-                broadcastTelemetry("AI Brain", "মেমোরিতে ${aiAppBrain.size} টি অ্যাপ স্ক্যান করে সেভ করা হয়েছে")
             } catch (e: Exception) {}
         }
     }
@@ -150,7 +228,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun handleSmartCommand(command: String) {
         val lower = command.lowercase(Locale.ROOT)
-        broadcastTelemetry("You: \"$command\"", "AI: চিন্তা করছি...")
+        broadcastTelemetry("You: \"$command\"", "AI: নির্দেশ পালন করছি...")
 
         // ১. ইউটিউব গান
         if (lower.contains("youtube") || lower.contains("ইউটিউব") || lower.contains("গান") || lower.contains("song")) {
@@ -189,7 +267,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // ৪. AI BRAIN থেকে অ্যাপ ওপেন করা (যেকোনো ফোন ও যেকোনো অ্যাপের জন্য)
+        // ৪. AI BRAIN থেকে যেকোনো অ্যাপ ওপেন
         if (lower.contains("খোলো") || lower.contains("খোল") || lower.contains("ওপেন") || 
             lower.contains("চালাও") || lower.contains("যাও") || lower.contains("ঢোকো") || lower.contains("open")) {
             
@@ -197,18 +275,17 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                 .replace("চালাও", "").replace("যাও", "").replace("ঢোকো", "").replace("open", "", ignoreCase = true)
                 .replace("অ্যাপে", "").replace("অ্যাপসে", "").replace("এ", "").replace("তে", "").trim()
 
-            val openedAppName = openFromAiBrain(appQuery)
-            if (openedAppName != null) {
-                speak("$openedAppName খুলে দিয়েছি")
+            val opened = openFromAiBrain(appQuery)
+            if (opened != null) {
+                speak("$opened খুলে দিয়েছি")
                 return
             }
         }
 
-        // সাধারণ প্রশ্নের জন্য Gemini AI
+        // সাধারণ প্রশ্ন হলে Gemini AI
         callGeminiFallback(command)
     }
 
-    // AI BRAIN মেমোরি থেকে অ্যাপ খুঁজে বের করে সরাসরি ওপেন করা
     private fun openFromAiBrain(query: String): String? {
         val cleanQuery = query.lowercase().trim()
         val englishKey = convertBanglaToEnglishSound(cleanQuery)
@@ -217,7 +294,6 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             val labelLower = app.label.lowercase()
             val pkgLower = app.packageName.lowercase()
 
-            // ১. ব্রেইনে সংরক্ষিত নামের সাথে সরাসরি মিল
             if (labelLower.contains(cleanQuery) || labelLower.contains(englishKey) ||
                 pkgLower.contains(cleanQuery) || pkgLower.contains(englishKey) ||
                 app.phoneticKey.contains(englishKey)) {
@@ -233,7 +309,6 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         return null
     }
 
-    // বাংলা উচ্চারণকে ধ্বনি অনুযায়ী রূপান্তর (ক্যালকুলেটর -> calculator, ক্যামেরা -> camera ইত্যাদি)
     private fun convertBanglaToEnglishSound(bangla: String): String {
         return bangla.replace("ক্যালকুলেটর", "calculator")
             .replace("ক্যামেরা", "camera")
@@ -252,10 +327,6 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             .replace("ফেসবুক", "facebook")
             .replace("হোয়াটসঅ্যাপ", "whatsapp")
             .replace("মেসেঞ্জার", "messenger")
-    }
-
-    private fun convertToPhoneticSearchKey(text: String): String {
-        return text.lowercase().replace(" ", "").replace("-", "")
     }
 
     private fun callGeminiFallback(command: String) {
@@ -306,8 +377,8 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, "assistant_channel")
-            .setContentTitle("JANEMAN BRAIN ONLINE")
-            .setContentText("All apps indexed & listening...")
+            .setContentTitle("JANEMAN ACTIVE")
+            .setContentText("Floating bubble active on screen...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
     }
@@ -318,6 +389,12 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         speechRecognizer?.destroy()
         tts?.stop()
         tts?.shutdown()
+
+        // বাবল রিমুভ করা
+        if (floatingBubbleView != null) {
+            windowManager?.removeView(floatingBubbleView)
+            floatingBubbleView = null
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
