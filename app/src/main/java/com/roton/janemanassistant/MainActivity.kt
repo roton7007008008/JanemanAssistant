@@ -11,9 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.view.View
 import android.widget.Button
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -23,17 +21,15 @@ import androidx.core.content.ContextCompat
 class MainActivity : AppCompatActivity() {
 
     private var isServiceRunning = false
-    private lateinit var tvHudStatus: TextView
-    private lateinit var tvLiveLog: TextView
-    private lateinit var tvCoreStatus: TextView
-    private lateinit var ivReactorMeter: ProgressBar
+    private lateinit var tvStatus: TextView
     private lateinit var btnToggleAssistant: Button
     private lateinit var btnEnableAccessibility: Button
 
     private val telemetryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val log = intent?.getStringExtra("log") ?: ""
-            tvLiveLog.text = log
+            val userSaid = intent?.getStringExtra("userSaid") ?: ""
+            val aiAction = intent?.getStringExtra("aiAction") ?: ""
+            tvStatus.text = "$userSaid\n$aiAction"
         }
     }
 
@@ -52,14 +48,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        tvHudStatus = findViewById(R.id.tvHudStatus)
-        tvLiveLog = findViewById(R.id.tvLiveLog)
-        tvCoreStatus = findViewById(R.id.tvCoreStatus)
-        ivReactorMeter = findViewById(R.id.ivReactorMeter)
+        tvStatus = findViewById(R.id.tvStatus)
         btnToggleAssistant = findViewById(R.id.btnToggleAssistant)
         btnEnableAccessibility = findViewById(R.id.btnEnableAccessibility)
-
-        ivReactorMeter.visibility = View.INVISIBLE
 
         requestAppPermissions()
         checkOverlayPermission()
@@ -115,14 +106,9 @@ class MainActivity : AppCompatActivity() {
         val serviceIntent = Intent(this, AssistantService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
         isServiceRunning = true
-
-        // মিটার অ্যানিমেশন চালু
-        ivReactorMeter.visibility = View.VISIBLE
-        tvHudStatus.text = "● PROTOCOL: ONLINE & ENGAGED"
-        tvHudStatus.setTextColor(Color.parseColor("#00F2FE"))
-        tvCoreStatus.text = "ACTIVE"
-        tvCoreStatus.setTextColor(Color.parseColor("#00F2FE"))
-        btnToggleAssistant.text = "DISENGAGE PROTOCOL"
+        tvStatus.text = "● ASSISTANT ACTIVE\nListening to your voice..."
+        tvStatus.setTextColor(Color.parseColor("#00E676"))
+        btnToggleAssistant.text = "STOP ASSISTANT"
         btnToggleAssistant.setBackgroundColor(Color.parseColor("#FF1744"))
     }
 
@@ -130,15 +116,10 @@ class MainActivity : AppCompatActivity() {
         val serviceIntent = Intent(this, AssistantService::class.java)
         stopService(serviceIntent)
         isServiceRunning = false
-
-        // মিটার অ্যানিমেশন বন্ধ
-        ivReactorMeter.visibility = View.INVISIBLE
-        tvHudStatus.text = "● SYSTEM: OFFLINE"
-        tvHudStatus.setTextColor(Color.parseColor("#FF1744"))
-        tvCoreStatus.text = "STANDBY"
-        tvCoreStatus.setTextColor(Color.parseColor("#26C6DA"))
-        btnToggleAssistant.text = "INITIALIZE SYSTEM"
-        btnToggleAssistant.setBackgroundColor(Color.parseColor("#00F2FE"))
+        tvStatus.text = "● ASSISTANT OFFLINE"
+        tvStatus.setTextColor(Color.parseColor("#AAAAAA"))
+        btnToggleAssistant.text = "START ASSISTANT"
+        btnToggleAssistant.setBackgroundColor(Color.parseColor("#00E676"))
     }
 
     private fun hasPermissions(): Boolean {
