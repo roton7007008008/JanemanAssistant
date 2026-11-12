@@ -1,6 +1,8 @@
 package com.roton.janemanassistant
 
 import android.Manifest
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -11,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -22,14 +25,20 @@ class MainActivity : AppCompatActivity() {
 
     private var isServiceRunning = false
     private lateinit var tvStatus: TextView
+    private lateinit var tvLiveLog: TextView
+    private lateinit var tvOrbState: TextView
+    private lateinit var geminiOrbGlow: View
+    private lateinit var geminiOrbCore: View
     private lateinit var btnToggleAssistant: Button
     private lateinit var btnEnableAccessibility: Button
+
+    private var orbAnimator: ObjectAnimator? = null
 
     private val telemetryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val userSaid = intent?.getStringExtra("userSaid") ?: ""
             val aiAction = intent?.getStringExtra("aiAction") ?: ""
-            tvStatus.text = "$userSaid\n$aiAction"
+            tvLiveLog.text = "$userSaid\n$aiAction"
         }
     }
 
@@ -49,6 +58,10 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         tvStatus = findViewById(R.id.tvStatus)
+        tvLiveLog = findViewById(R.id.tvLiveLog)
+        tvOrbState = findViewById(R.id.tvOrbState)
+        geminiOrbGlow = findViewById(R.id.geminiOrbGlow)
+        geminiOrbCore = findViewById(R.id.geminiOrbCore)
         btnToggleAssistant = findViewById(R.id.btnToggleAssistant)
         btnEnableAccessibility = findViewById(R.id.btnEnableAccessibility)
 
@@ -97,29 +110,45 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        try {
-            unregisterReceiver(telemetryReceiver)
-        } catch (e: Exception) {}
+        try { unregisterReceiver(telemetryReceiver) } catch (e: Exception) {}
     }
 
     private fun startAssistant() {
         val serviceIntent = Intent(this, AssistantService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
         isServiceRunning = true
-        tvStatus.text = "● ASSISTANT ACTIVE\nListening to your voice..."
+
+        tvStatus.text = "● ASSISTANT ONLINE (Listening...)"
         tvStatus.setTextColor(Color.parseColor("#00E676"))
+        tvOrbState.text = "LISTENING"
         btnToggleAssistant.text = "STOP ASSISTANT"
         btnToggleAssistant.setBackgroundColor(Color.parseColor("#FF1744"))
+
+        // Gemini Orb স্পন্দিত অ্যানিমেশন শুরু
+        val scaleX = PropertyValuesHolder.ofFloat(View.SCALE_X, 1.0f, 1.25f, 1.0f)
+        val scaleY = PropertyValuesHolder.ofFloat(View.SCALE_Y, 1.0f, 1.25f, 1.0f)
+        orbAnimator = ObjectAnimator.ofPropertyValuesHolder(geminiOrbGlow, scaleX, scaleY).apply {
+            duration = 1500
+            repeatCount = ObjectAnimator.INFINITE
+            start()
+        }
     }
 
     private fun stopAssistant() {
         val serviceIntent = Intent(this, AssistantService::class.java)
         stopService(serviceIntent)
         isServiceRunning = false
-        tvStatus.text = "● ASSISTANT OFFLINE"
+
+        tvStatus.text = "● SYSTEM OFFLINE"
         tvStatus.setTextColor(Color.parseColor("#AAAAAA"))
+        tvOrbState.text = "STANDBY"
         btnToggleAssistant.text = "START ASSISTANT"
-        btnToggleAssistant.setBackgroundColor(Color.parseColor("#00E676"))
+        btnToggleAssistant.setBackgroundColor(Color.parseColor("#00F2FE"))
+
+        // অ্যানিমেশন বন্ধ
+        orbAnimator?.cancel()
+        geminiOrbGlow.scaleX = 1.0f
+        geminiOrbGlow.scaleY = 1.0f
     }
 
     private fun hasPermissions(): Boolean {
