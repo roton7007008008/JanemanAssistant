@@ -6,9 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ResolveInfo
-import android.graphics.Color
-import android.graphics.PixelFormat
+import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -17,6 +15,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.ContactsContract
+import android.provider.MediaStore
 import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -24,11 +23,6 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
-import android.view.Gravity
-import android.view.MotionEvent
-import android.view.View
-import android.view.WindowManager
-import android.widget.ImageView
 import androidx.core.app.NotificationCompat
 import com.google.ai.client.generativeai.GenerativeModel
 import kotlinx.coroutines.CoroutineScope
@@ -40,31 +34,18 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private val GEMINI_API_KEY = "AQ.Ab8RN6LwpcqBwrQg-FX2RQbRVR_1lZFo8rWYwjzTfFxbgknvlQ"
 
-    // AI BRAIN
-    data class AppMemory(val label: String, val packageName: String, val phoneticKey: String)
-    private val aiAppBrain = mutableListOf<AppMemory>()
-
     private var speechRecognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main)
     private var isListening = false
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    // হোমস্ক্রিন ভাসমান বাবল ভেরিয়েবল
-    private var windowManager: WindowManager? = null
-    private var floatingBubbleView: View? = null
-
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         startForeground(101, buildNotification())
         tts = TextToSpeech(this, this)
-
-        scanAndBuildAppBrain()
         initSpeechRecognizer()
-
-        // হোমস্ক্রিনে মেসেঞ্জারের মতো ভাসমান বাবল তৈরি
-        showFloatingBubble()
     }
 
     override fun onInit(status: Int) {
@@ -73,95 +54,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 tts?.setLanguage(Locale.US)
             }
-            speak("আমি Janeman Assistant বলছি। আপনার হোমস্ক্রিনে বাবল চালু হয়ে গেছে বস!")
-        }
-    }
-
-    // মেসেঞ্জার চ্যাট হেডের মতো ভাসমান বাবল তৈরি ও ড্র্যাগ কন্ট্রোল
-    private fun showFloatingBubble() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) return
-        if (floatingBubbleView != null) return
-
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-
-        val layoutParams = WindowManager.LayoutParams(
-            150, 150, // বাবলের সাইজ
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 30
-            y = 250
-        }
-
-        val bubble = ImageView(this).apply {
-            try {
-                setImageResource(R.drawable.app_icon)
-            } catch (e: Exception) {
-                setImageResource(android.R.drawable.ic_btn_speak_now)
-            }
-            setBackgroundColor(Color.TRANSPARENT)
-
-            setOnTouchListener(object : View.OnTouchListener {
-                private var initialX = 0
-                private var initialY = 0
-                private var touchX = 0f
-                private var touchY = 0f
-
-                override fun onTouch(v: View?, event: MotionEvent): Boolean {
-                    when (event.action) {
-                        MotionEvent.ACTION_DOWN -> {
-                            initialX = layoutParams.x
-                            initialY = layoutParams.y
-                            touchX = event.rawX
-                            touchY = event.rawY
-                            return true
-                        }
-                        MotionEvent.ACTION_MOVE -> {
-                            layoutParams.x = initialX + (event.rawX - touchX).toInt()
-                            layoutParams.y = initialY + (event.rawY - touchY).toInt()
-                            windowManager?.updateViewLayout(floatingBubbleView, layoutParams)
-                            return true
-                        }
-                        MotionEvent.ACTION_UP -> {
-                            // বাবলটিতে টাচ করলে সাথে সাথে কথা শুনবে
-                            if (Math.abs(event.rawX - touchX) < 15 && Math.abs(event.rawY - touchY) < 15) {
-                                speak("শুনছি বস, বলুন!")
-                                startListening()
-                            }
-                            return true
-                        }
-                    }
-                    return false
-                }
-            })
-        }
-
-        floatingBubbleView = bubble
-        try {
-            windowManager?.addView(floatingBubbleView, layoutParams)
-        } catch (e: Exception) {}
-    }
-
-    private fun scanAndBuildAppBrain() {
-        serviceScope.launch(Dispatchers.IO) {
-            try {
-                aiAppBrain.clear()
-                val pm = packageManager
-                val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
-                    addCategory(Intent.CATEGORY_LAUNCHER)
-                }
-                val apps: List<ResolveInfo> = pm.queryIntentActivities(mainIntent, 0)
-
-                for (info in apps) {
-                    val appLabel = info.loadLabel(pm).toString()
-                    val pkgName = info.activityInfo.packageName
-                    val phonetic = appLabel.lowercase().replace(" ", "").replace("-", "")
-
-                    aiAppBrain.add(AppMemory(appLabel, pkgName, phonetic))
-                }
-            } catch (e: Exception) {}
+            speak("আমি Janeman Assistant বলছি। আমি সম্পূর্ণ প্রস্তুত আছি!")
         }
     }
 
@@ -228,7 +121,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun handleSmartCommand(command: String) {
         val lower = command.lowercase(Locale.ROOT)
-        broadcastTelemetry("You: \"$command\"", "AI: নির্দেশ পালন করছি...")
+        broadcastTelemetry("You: \"$command\"", "AI: কাজ করছি...")
 
         // ১. ইউটিউব গান
         if (lower.contains("youtube") || lower.contains("ইউটিউব") || lower.contains("গান") || lower.contains("song")) {
@@ -267,66 +160,109 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // ৪. AI BRAIN থেকে যেকোনো অ্যাপ ওপেন
-        if (lower.contains("খোলো") || lower.contains("খোল") || lower.contains("ওপেন") || 
-            lower.contains("চালাও") || lower.contains("যাও") || lower.contains("ঢোকো") || lower.contains("open")) {
-            
-            val appQuery = command.replace("খোলো", "").replace("খোল", "").replace("ওপেন করো", "")
+        // ৪. সরাসরি যেকোনো অ্যাপ ওপেন করার নিশ্চিত ইঞ্জিন (Direct Launcher)
+        val appKeywords = listOf("খোলো", "খোল", "ওপেন", "চালাও", "যাও", "ঢোকো", "open")
+        var isApp = false
+        for (k in appKeywords) {
+            if (lower.contains(k)) {
+                isApp = true
+                break
+            }
+        }
+
+        if (isApp) {
+            val cleanApp = command.replace("খোলো", "").replace("খোল", "").replace("ওপেন করো", "")
                 .replace("চালাও", "").replace("যাও", "").replace("ঢোকো", "").replace("open", "", ignoreCase = true)
                 .replace("অ্যাপে", "").replace("অ্যাপসে", "").replace("এ", "").replace("তে", "").trim()
 
-            val opened = openFromAiBrain(appQuery)
-            if (opened != null) {
-                speak("$opened খুলে দিয়েছি")
-                return
+            val success = launchAppGuaranteed(cleanApp)
+            if (success) {
+                speak("$cleanApp খুলে দিয়েছি")
+            } else {
+                speak("স্যার, আপনার ফোনে $cleanApp অ্যাপটি খুঁজে পাওয়া যায়নি")
             }
+            return
         }
 
-        // সাধারণ প্রশ্ন হলে Gemini AI
+        // ৫. সাধারণ প্রশ্ন হলে তবেই শুধু Gemini AI ডাকবে
         callGeminiFallback(command)
     }
 
-    private fun openFromAiBrain(query: String): String? {
-        val cleanQuery = query.lowercase().trim()
-        val englishKey = convertBanglaToEnglishSound(cleanQuery)
+    // যেকোনো অ্যাপ গ্যারান্টি সহকারে ওপেন করার মেথড
+    private fun launchAppGuaranteed(rawName: String): Boolean {
+        val query = rawName.lowercase().trim()
 
-        for (app in aiAppBrain) {
-            val labelLower = app.label.lowercase()
-            val pkgLower = app.packageName.lowercase()
+        // ১. সিস্টেম অ্যাপস সরাসরি লঞ্চ
+        try {
+            if (query.contains("ক্যামেরা") || query.contains("camera")) {
+                val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
+                startActivity(intent)
+                return true
+            }
+            if (query.contains("সেটিংস") || query.contains("settings")) {
+                val intent = Intent(Settings.ACTION_SETTINGS).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
+                startActivity(intent)
+                return true
+            }
+            if (query.contains("গ্যালারি") || query.contains("ছবি") || query.contains("gallery") || query.contains("photos")) {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    type = "image/*"
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(intent)
+                return true
+            }
+        } catch (e: Exception) {}
 
-            if (labelLower.contains(cleanQuery) || labelLower.contains(englishKey) ||
-                pkgLower.contains(cleanQuery) || pkgLower.contains(englishKey) ||
-                app.phoneticKey.contains(englishKey)) {
+        // ২. প্যাকেজ ধরে সরাসরি ওপেন
+        val directPackages = mapOf(
+            "টিকটক" to listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill"),
+            "tiktok" to listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill"),
+            "ফেসবুক" to listOf("com.facebook.katana", "com.facebook.lite"),
+            "facebook" to listOf("com.facebook.katana", "com.facebook.lite"),
+            "মেসেঞ্জার" to listOf("com.facebook.orca", "com.facebook.mlite"),
+            "messenger" to listOf("com.facebook.orca", "com.facebook.mlite"),
+            "হোয়াটসঅ্যাপ" to listOf("com.whatsapp"),
+            "whatsapp" to listOf("com.whatsapp"),
+            "বিকাশ" to listOf("com.bKash.customerapp"),
+            "bkash" to listOf("com.bKash.customerapp"),
+            "নগদ" to listOf("com.konasl.nagad"),
+            "nagad" to listOf("com.konasl.nagad"),
+            "ফ্রি ফায়ার" to listOf("com.dts.freefireth", "com.dts.freefiremax"),
+            "ক্রোম" to listOf("com.android.chrome"),
+            "chrome" to listOf("com.android.chrome"),
+            "ক্যালকুলেটর" to listOf("com.google.android.calculator", "com.android.calculator2", "com.coloros.calculator"),
+            "calculator" to listOf("com.google.android.calculator", "com.android.calculator2", "com.coloros.calculator")
+        )
 
-                val launchIntent = packageManager.getLaunchIntentForPackage(app.packageName)
-                if (launchIntent != null) {
-                    launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    startActivity(launchIntent)
-                    return app.label
+        for ((key, pkgs) in directPackages) {
+            if (query.contains(key)) {
+                for (pkg in pkgs) {
+                    val intent = packageManager.getLaunchIntentForPackage(pkg)
+                    if (intent != null) {
+                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        startActivity(intent)
+                        return true
+                    }
                 }
             }
         }
-        return null
-    }
 
-    private fun convertBanglaToEnglishSound(bangla: String): String {
-        return bangla.replace("ক্যালকুলেটর", "calculator")
-            .replace("ক্যামেরা", "camera")
-            .replace("গ্যালারি", "gallery")
-            .replace("ছবি", "photos")
-            .replace("সেটিংস", "settings")
-            .replace("ক্রোম", "chrome")
-            .replace("প্লে স্টোর", "vending")
-            .replace("মেসেজ", "message")
-            .replace("ঘড়ি", "clock")
-            .replace("ফাইল", "file")
-            .replace("বিকাশ", "bkash")
-            .replace("নগদ", "nagad")
-            .replace("ফ্রি ফায়ার", "free fire")
-            .replace("টিকটক", "tiktok")
-            .replace("ফেসবুক", "facebook")
-            .replace("হোয়াটসঅ্যাপ", "whatsapp")
-            .replace("মেসেঞ্জার", "messenger")
+        // ৩. পুরো ফোনের সমস্ত অ্যাপ খুঁজে বের করা
+        val pm = packageManager
+        val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        for (app in packages) {
+            val label = pm.getApplicationLabel(app).toString().lowercase()
+            if (label.contains(query) || app.packageName.lowercase().contains(query)) {
+                val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
+                if (launchIntent != null) {
+                    launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    startActivity(launchIntent)
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private fun callGeminiFallback(command: String) {
@@ -337,7 +273,7 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
                 speak(res)
                 broadcastTelemetry("You: $command", "Jarvis: $res")
             } catch (e: Exception) {
-                speak("আমি আপনার নির্দেশটি বুঝতে পেরেছি বস!")
+                // কোনো ভুল হলে চুপ থাকবে, আর ওই এক কথা বারবার বলবে না
             }
         }
     }
@@ -377,8 +313,8 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
 
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, "assistant_channel")
-            .setContentTitle("JANEMAN ACTIVE")
-            .setContentText("Floating bubble active on screen...")
+            .setContentTitle("JANEMAN ONLINE")
+            .setContentText("Listening to your voice...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
     }
@@ -389,12 +325,6 @@ class AssistantService : Service(), TextToSpeech.OnInitListener {
         speechRecognizer?.destroy()
         tts?.stop()
         tts?.shutdown()
-
-        // বাবল রিমুভ করা
-        if (floatingBubbleView != null) {
-            windowManager?.removeView(floatingBubbleView)
-            floatingBubbleView = null
-        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
