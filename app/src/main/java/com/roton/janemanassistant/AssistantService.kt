@@ -38,7 +38,7 @@ import java.util.Locale
 
 class AssistantService : Service(), TextToSpeech.OnInitListener {
 
-    private val GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
+    private val GEMINI_API_KEY = "AQ.Ab8RN6LwpcqBwrQg-FX2RQbRVR_1lZFo8rWYwjzTfFxbgknvlQ"
 
     // AI BRAIN
     data class AppMemory(val label: String, val packageName: String, val phoneticKey: String)
