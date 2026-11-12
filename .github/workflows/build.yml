@@ -24,12 +24,15 @@ jobs:
       with:
         gradle-version: '8.6'
 
-    # যেকোনো নামের আপলোড করা ছবিকে নিখুঁতভাবে লোগো বানিয়ে দেওয়া
-    - name: Auto Setup App Icon
+    # ফোনের সব সাইজের জন্য আইকন সেটআপ
+    - name: Configure App Icon Everywhere
       run: |
         mkdir -p app/src/main/res/drawable
         find . -maxdepth 2 -name "*.png" -exec cp {} app/src/main/res/drawable/app_icon.png \; || true
-        ls -la app/src/main/res/drawable/
+        for dir in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+          mkdir -p app/src/main/res/$dir
+          find . -maxdepth 2 -name "*.png" -exec cp {} app/src/main/res/$dir/app_icon.png \; || true
+        done
 
     - name: Build Debug APK
       run: gradle assembleDebug --stacktrace
